@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DB Optimization & Intelligence Agent</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand-mark" aria-label="DB Optimization & Intelligence Agent">
+        <span class="db-icon"></span>
+      </div>
+      <nav id="sideNav"></nav>
+      <button class="feedback" id="loadSampleBtn">Load Sample SP</button>
+    </aside>
+
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>DB Optimization & Intelligence Agent</h1>
+          <p>Analyze relational and NoSQL database objects, procedures, dependencies, schemas, indexes, risks, and execution behavior.</p>
+        </div>
+        <div class="top-actions">
+          <button id="historyBtn" class="ghost">History</button>
+          <button id="saveReportBtn" class="ghost">Save Report</button>
+          <button id="helpBtn" class="icon-btn">?</button>
+          <div class="avatar">AD</div>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <section class="input-panel card">
+          <div class="panel-title">
+            <span>1</span>
+            <strong>Input Source</strong>
+          </div>
+
+          <label>Input Method</label>
+          <div class="radio-grid">
+            <button class="choice active" data-source="auto">Auto Detect</button>
+            <button class="choice" data-source="Stored Procedure">Stored Procedure</button>
+            <button class="choice" data-source="SQL Query">SQL Query</button>
+            <button class="choice" data-source="View">View</button>
+            <button class="choice" data-source="Function">Function</button>
+            <button class="choice" data-source="DML Script">DDL / DML</button>
+          </div>
+
+          <label for="dbType">Database Type</label>
+          <select id="dbType">
+            <option>SQL Server</option>
+            <option>PostgreSQL</option>
+            <option>Oracle</option>
+          </select>
+
+          <div class="editor-label">
+            <label for="sqlInput">DB Object / Query / Script</label>
+            <button id="clearBtn">Clear</button>
+          </div>
+          <textarea id="sqlInput" spellcheck="false"></textarea>
+          <input id="fileInput" type="file" accept=".sql,.txt" hidden />
+          <small class="hint">Paste a stored procedure, query, function, view, DDL, or DML script. If it calls another procedure, the agent will ask for that object too.</small>
+
+          <div class="button-row">
+            <button id="analyzeBtn" class="primary">Analyze Object</button>
+            <button id="uploadBtn" class="secondary">Upload .sql</button>
+          </div>
+        </section>
+
+        <section class="main-panel">
+          <div class="tabs" id="tabs"></div>
+
+          <section id="summaryView" class="tab-view active">
+            <div class="grid two">
+              <article class="card summary-card">
+                <div class="section-heading blue">DB Object Summary</div>
+                <div class="summary-grid" id="summaryGrid"></div>
+                <h3>What this object does</h3>
+                <p id="explanation">Paste a SQL object and run analysis.</p>
+              </article>
+
+              <article class="card metric-card">
+                <div class="section-heading blue">Performance Overview</div>
+                <div class="metrics" id="metricsGrid"></div>
+              </article>
+            </div>
+
+            <div class="grid three">
+              <article class="card">
+                <div class="section-heading red">Top Performance Findings</div>
+                <div id="findingsList" class="stack"></div>
+              </article>
+              <article class="card">
+                <div class="section-heading green">Top Optimization Suggestions</div>
+                <div id="suggestionsList" class="stack"></div>
+              </article>
+              <article class="card">
+                <div class="section-heading orange">Impact Analysis</div>
+                <div id="impactList" class="stack compact"></div>
+              </article>
+            </div>
+          </section>
+
+          <section id="dependencyView" class="tab-view">
+            <div class="grid dependency-layout">
+              <article class="card">
+                <div class="section-heading blue">Object Memory</div>
+                <div id="memoryList" class="memory-list"></div>
+              </article>
+              <article class="card">
+                <div class="section-heading orange">Missing Referenced Objects</div>
+                <div id="missingList" class="stack"></div>
+                <div class="add-object">
+                  <label for="relatedSql">Paste referenced procedure/function</label>
+                  <textarea id="relatedSql" spellcheck="false"></textarea>
+                  <button id="addRelatedBtn" class="primary">Add To Dependency Workspace</button>
+                </div>
+              </article>
+              <article class="card">
+                <div class="section-heading green">Dependency Map</div>
+                <div id="dependencyMap" class="dependency-map"></div>
+              </article>
+            </div>
+          </section>
+
+          <section id="optimizationView" class="tab-view">
+            <div class="grid two">
+              <article class="card">
+                <div class="section-heading green">Optimized Query / Procedure Draft</div>
+                <pre id="optimizedSql" class="code-output"></pre>
+              </article>
+              <article class="card">
+                <div class="section-heading blue">Index Recommendation Scripts</div>
+                <pre id="indexScripts" class="code-output"></pre>
+              </article>
+            </div>
+          </section>
+
+          <section id="planView" class="tab-view">
+            <article class="card">
+              <div class="section-heading blue">Execution Plan Review</div>
+              <div id="planList" class="plan-list"></div>
+            </article>
+          </section>
+
+          <section id="reportsView" class="tab-view">
+            <article class="card">
+              <div class="section-heading blue">Recommended Outputs / Reports</div>
+              <div class="outputs" id="outputsGrid"></div>
+            </article>
+          </section>
+
+          <section id="schemaView" class="tab-view">
+            <div class="grid schema-layout">
+              <article class="card">
+                <div class="section-heading green">DB Schema Agent</div>
+                <label for="schemaPrompt">Schema requirement or existing DDL</label>
+                <textarea id="schemaPrompt" spellcheck="false"></textarea>
+                <button id="designSchemaBtn" class="primary schema-run">Design / Review Schema</button>
+              </article>
+              <article class="card">
+                <div class="section-heading blue">Tables & Relationships</div>
+                <div id="schemaTables" class="schema-list"></div>
+              </article>
+              <article class="card">
+                <div class="section-heading orange">Schema Quality Review</div>
+                <div id="schemaReview" class="stack"></div>
+              </article>
+            </div>
+            <div class="grid two schema-results">
+              <article class="card">
+                <div class="section-heading green">Migration Script</div>
+                <pre id="migrationScript" class="code-output"></pre>
+              </article>
+              <article class="card">
+                <div class="section-heading red">Rollback / ERD / Reports</div>
+                <div class="outputs" id="schemaOutputs"></div>
+                <pre id="erdSummary" class="code-output small-code"></pre>
+              </article>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <div id="toast" class="toast">Ready</div>
+    <script src="/app.js"></script>
+  </body>
+</html>

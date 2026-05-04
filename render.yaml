@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: db-optimization-intelligence-agent
+    runtime: python
+    plan: free
+    buildCommand: echo "No build required"
+    startCommand: python -B run_agent.py
