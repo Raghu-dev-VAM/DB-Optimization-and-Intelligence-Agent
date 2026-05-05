@@ -73,9 +73,8 @@ function init() {
   renderNav();
   renderTabs();
   bindEvents();
-  $('sqlInput').value = sampleProcedure;
   $('schemaPrompt').value = sampleSchemaPrompt;
-  toast('Sample stored procedure loaded. Run analysis to begin.');
+  toast('Paste your SQL here or upload a .sql file to begin...');
   renderEmpty();
 }
 
