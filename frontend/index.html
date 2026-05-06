@@ -11,21 +11,29 @@
       <div class="brand-mark" aria-label="DB Optimization & Intelligence Agent">
         <span class="db-icon"></span>
       </div>
-      <nav id="sideNav"></nav>
+      <nav class="side-nav">
+        <button class="nav-item active" id="modeAnalyzeNav" data-mode="analyze">
+          <span class="nav-icon">A</span>
+          <span>Analyze</span>
+        </button>
+        <button class="nav-item" id="modeSchemaNav" data-mode="schema">
+          <span class="nav-icon">S</span>
+          <span>Schema Agent</span>
+        </button>
+      </nav>
       <button class="feedback" id="loadSampleBtn">Load Sample SP</button>
     </aside>
 
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1>DB Optimization & Intelligence Agent</h1>
-          <p>Analyze relational and NoSQL database objects, procedures, dependencies, schemas, indexes, risks, and execution behavior.</p>
+          <h1 id="modeTitle">Analyze SQL Object</h1>
+          <p id="modeDesc">Paste a stored procedure, query, function, view, DDL, or DML — get a full diagnosis, optimization plan, and deployment package.</p>
         </div>
         <div class="top-actions">
-          <button id="historyBtn" class="ghost">History</button>
+          <button id="newSessionBtn" class="ghost">New Session</button>
           <button id="saveReportBtn" class="ghost">Save Report</button>
           <button id="helpBtn" class="icon-btn">?</button>
-          <div class="avatar">AD</div>
         </div>
       </header>
 
@@ -71,6 +79,7 @@
           <div class="tabs" id="tabs"></div>
 
           <section id="summaryView" class="tab-view active">
+            <div id="missingRefBanner" class="missing-banner" style="display:none"></div>
             <div class="grid two">
               <article class="card summary-card">
                 <div class="section-heading blue">DB Object Summary</div>
@@ -80,8 +89,8 @@
               </article>
 
               <article class="card metric-card">
-                <div class="section-heading blue">Performance Overview</div>
-                <div class="metrics" id="metricsGrid"></div>
+                <div class="section-heading blue">Risk Overview</div>
+                <div id="metricsGrid"></div>
               </article>
             </div>
 
@@ -99,6 +108,8 @@
                 <div id="impactList" class="stack compact"></div>
               </article>
             </div>
+
+            <div id="deploymentReadiness" class="deployment-readiness"></div>
           </section>
 
           <section id="dependencyView" class="tab-view">
@@ -118,7 +129,9 @@
               </article>
               <article class="card">
                 <div class="section-heading green">Dependency Map</div>
-                <div id="dependencyMap" class="dependency-map"></div>
+                <div id="dependencyMap" class="dependency-map">
+                  <svg id="depGraph" width="100%" height="340"></svg>
+                </div>
               </article>
             </div>
           </section>
@@ -134,10 +147,7 @@
                 <pre id="indexScripts" class="code-output"></pre>
               </article>
             </div>
-          </section>
-
-          <section id="planView" class="tab-view">
-            <article class="card">
+            <article class="card" style="margin-top:10px">
               <div class="section-heading blue">Execution Plan Review</div>
               <div id="planList" class="plan-list"></div>
             </article>
@@ -154,6 +164,7 @@
             <div class="grid schema-layout">
               <article class="card">
                 <div class="section-heading green">DB Schema Agent</div>
+                <small class="hint" style="margin-top:0;margin-bottom:8px">Describe a schema in plain English, or paste existing DDL to review it.</small>
                 <label for="schemaPrompt">Schema requirement or existing DDL</label>
                 <textarea id="schemaPrompt" spellcheck="false"></textarea>
                 <button id="designSchemaBtn" class="primary schema-run">Design / Review Schema</button>
@@ -175,7 +186,8 @@
               <article class="card">
                 <div class="section-heading red">Rollback / ERD / Reports</div>
                 <div class="outputs" id="schemaOutputs"></div>
-                <pre id="erdSummary" class="code-output small-code"></pre>
+                <div class="section-heading blue" style="margin-top:14px">Entity Relationship Diagram</div>
+                <div id="erdDiagram" class="erd-diagram"></div>
               </article>
             </div>
           </section>
@@ -184,6 +196,7 @@
     </main>
 
     <div id="toast" class="toast">Ready</div>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

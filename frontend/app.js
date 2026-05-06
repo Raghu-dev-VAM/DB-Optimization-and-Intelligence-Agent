@@ -11,12 +11,14 @@ const navItems = [
 ];
 
 const tabs = [
-  ['summaryView', 'Summary'],
+  ['summaryView', 'Diagnose'],
   ['dependencyView', 'Dependencies'],
-  ['optimizationView', 'Optimization'],
-  ['planView', 'Execution Plan'],
-  ['reportsView', 'Reports'],
-  ['schemaView', 'DB Schema Agent']
+  ['optimizationView', 'Fix'],
+  ['reportsView', 'Deploy']
+];
+
+const schemaTabs = [
+  ['schemaView', 'Schema Agent']
 ];
 
 const sampleProcedure = `CREATE OR ALTER PROCEDURE dbo.usp_ProcessCustomerOrders
@@ -66,16 +68,20 @@ const sampleSchemaPrompt = `Design a customer order management schema with custo
 let selectedSource = 'auto';
 let currentAnalysis = null;
 let currentSchema = null;
+let primarySql = null;
+let primaryDbType = null;
+let primarySourceType = null;
+let currentMode = 'analyze';
 
 const $ = (id) => document.getElementById(id);
 
 function init() {
-  renderNav();
   renderTabs();
   bindEvents();
   $('schemaPrompt').value = sampleSchemaPrompt;
   toast('Paste your SQL here or upload a .sql file to begin...');
   renderEmpty();
+  setMode('analyze');
 }
 
 function renderNav() {
@@ -93,6 +99,27 @@ function renderTabs() {
   `).join('');
 }
 
+function setMode(mode) {
+  currentMode = mode;
+  const isAnalyze = mode === 'analyze';
+  $('modeTitle').textContent = isAnalyze ? 'Analyze SQL Object' : 'DB Schema Agent';
+  $('modeDesc').textContent = isAnalyze
+    ? 'Paste a stored procedure, query, function, view, DDL, or DML \u2014 get a full diagnosis, optimization plan, and deployment package.'
+    : 'Describe a schema in plain English or paste existing DDL \u2014 get tables, relationships, migration script, rollback, and ERD.';
+  document.querySelector('.workspace').classList.toggle('schema-mode', !isAnalyze);
+  $('modeAnalyzeNav').classList.toggle('active', isAnalyze);
+  $('modeSchemaNav').classList.toggle('active', !isAnalyze);
+  $('tabs').style.display = isAnalyze ? '' : 'none';
+  document.querySelectorAll('.tab-view').forEach(v => v.classList.remove('active'));
+  if (isAnalyze) {
+    $('summaryView').classList.add('active');
+    document.querySelector('.input-panel').style.display = '';
+  } else {
+    $('schemaView').classList.add('active');
+    document.querySelector('.input-panel').style.display = 'none';
+  }
+}
+
 function bindEvents() {
   document.querySelectorAll('.choice').forEach((button) => {
     button.addEventListener('click', () => {
@@ -106,48 +133,61 @@ function bindEvents() {
     button.addEventListener('click', () => setTab(button.dataset.tab));
   });
 
-  document.querySelectorAll('.nav-item').forEach((button) => {
-    button.addEventListener('click', () => {
-      document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('active'));
-      button.classList.add('active');
-      routeNav(button.dataset.nav);
-    });
-  });
+  $('modeAnalyzeNav').addEventListener('click', () => setMode('analyze'));
+  $('modeSchemaNav').addEventListener('click', () => setMode('schema'));
 
   $('analyzeBtn').addEventListener('click', analyze);
   $('addRelatedBtn').addEventListener('click', addRelatedObject);
   $('clearBtn').addEventListener('click', () => {
     $('sqlInput').value = '';
+    primarySql = null;
+    primaryDbType = null;
+    primarySourceType = null;
+    selectedSource = 'auto';
+    document.querySelectorAll('.choice').forEach((item) => item.classList.toggle('active', item.dataset.source === 'auto'));
     toast('Input cleared');
   });
   $('uploadBtn').addEventListener('click', () => $('fileInput').click());
   $('fileInput').addEventListener('change', uploadFile);
   $('loadSampleBtn').addEventListener('click', () => {
+    setMode('analyze');
     $('sqlInput').value = sampleProcedure;
     selectedSource = 'Stored Procedure';
     document.querySelectorAll('.choice').forEach((item) => item.classList.toggle('active', item.dataset.source === 'Stored Procedure'));
-    toast('Sample stored procedure loaded');
+    toast('Sample stored procedure loaded — click Analyze Object to begin.');
   });
-  $('historyBtn').addEventListener('click', showHistory);
   $('saveReportBtn').addEventListener('click', () => downloadArtifact('db_review_report', 'db-review-report.md'));
-  $('helpBtn').addEventListener('click', () => toast('Paste a SQL object, analyze it, then add missing referenced procedures from the Dependencies tab.'));
+  $('helpBtn').addEventListener('click', () => toast('Analyze mode: paste SQL and analyze. Schema mode: describe a schema and design it.'));
+  $('newSessionBtn').addEventListener('click', async () => {
+    await fetch('/api/reset', { method: 'POST' });
+    currentAnalysis = null;
+    currentSchema = null;
+    primarySql = null;
+    primaryDbType = null;
+    primarySourceType = null;
+    $('sqlInput').value = '';
+    setMode('analyze');
+    renderEmpty();
+    toast('Session cleared — ready for a new analysis.');
+  });
   $('designSchemaBtn').addEventListener('click', designSchema);
 }
 
-function routeNav(name) {
-  const tabByNav = {
-    'DB Schema Agent': 'schemaView',
-    'Dependency Workspace': 'dependencyView',
-    'Index Advisor': 'optimizationView',
-    'Performance Monitor': 'summaryView',
-    'Schema Explorer': 'dependencyView',
-    'Stored Procedures': 'dependencyView',
-    'Dashboard': 'summaryView',
-    'Analyze DB Object': 'summaryView',
-    'Settings': 'reportsView'
+function highlightDetectedType(objectType) {
+  const typeMap = {
+    'Stored Procedure': 'Stored Procedure',
+    'SQL Query':        'SQL Query',
+    'View':             'View',
+    'Function':         'Function',
+    'DDL Script':       'DML Script',
+    'DML Script':       'DML Script',
   };
-  setTab(tabByNav[name] || 'summaryView');
-  toast(`${name} opened`);
+  const match = typeMap[objectType];
+  if (!match) return;
+  document.querySelectorAll('.choice').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.source === match);
+  });
+  selectedSource = match;
 }
 
 function setTab(id) {
@@ -168,7 +208,11 @@ async function analyze() {
       db_type: $('dbType').value,
       source_type: selectedSource
     });
+    primarySql = sql;
+    primaryDbType = $('dbType').value;
+    primarySourceType = selectedSource;
     renderAnalysis(currentAnalysis);
+    highlightDetectedType(currentAnalysis.summary.object_type);
     toast(`Analyzed ${currentAnalysis.object.name}`);
   } catch (error) {
     toast(error.message);
@@ -185,15 +229,29 @@ async function addRelatedObject() {
   }
   $('addRelatedBtn').textContent = 'Adding...';
   try {
-    currentAnalysis = await postJson('/api/add-object', {
+    const added = await postJson('/api/add-object', {
       sql,
       db_type: $('dbType').value,
       source_type: 'auto'
     });
     $('relatedSql').value = '';
-    renderAnalysis(currentAnalysis);
-    setTab('dependencyView');
-    toast(`Added ${currentAnalysis.object.name} to object memory`);
+    toast(`Added ${added.object.name} to object memory. Re-analyzing primary object...`);
+
+    if (primarySql) {
+      currentAnalysis = await postJson('/api/analyze', {
+        sql: primarySql,
+        db_type: primaryDbType,
+        source_type: primarySourceType
+      });
+      renderAnalysis(currentAnalysis);
+      setTab('summaryView');
+      highlightDetectedType(currentAnalysis.summary.object_type);
+      toast(`Complete — ${added.object.name} resolved. Showing updated analysis for ${currentAnalysis.object.name}.`);
+    } else {
+      renderAnalysis(added);
+      setTab('dependencyView');
+      toast(`Added ${added.object.name} to object memory`);
+    }
   } catch (error) {
     toast(error.message);
   } finally {
@@ -220,7 +278,9 @@ async function showHistory() {
     return;
   }
   currentAnalysis = history[0];
+  setMode('analyze');
   renderAnalysis(currentAnalysis);
+  setTab('summaryView');
   toast(`Loaded latest history item: ${currentAnalysis.object.name}`);
 }
 
@@ -237,7 +297,6 @@ async function designSchema() {
       db_type: $('dbType').value
     });
     renderSchema(currentSchema);
-    setTab('schemaView');
     toast(`Schema Agent produced ${currentSchema.tables.length} table(s) and ${currentSchema.relationships.length} relationship(s)`);
   } catch (error) {
     toast(error.message);
@@ -248,10 +307,12 @@ async function designSchema() {
 
 function renderAnalysis(data) {
   renderSummary(data);
-  renderMetrics(data.metrics);
+  renderRiskCard(data.metrics, data.findings);
   renderFindings(data.findings);
   renderSuggestions(data.suggestions);
   renderImpact(data.impact);
+  renderDeploymentReadiness(data.findings, data.suggestions);
+  renderMissingRefBanner(data.summary.missing_references);
   renderDependencies(data);
   renderOptimization(data);
   renderPlan(data.execution_plan);
@@ -276,18 +337,24 @@ function renderSummary(data) {
   $('explanation').textContent = summary.explanation;
 }
 
-function renderMetrics(metrics) {
-  const values = [
-    ['Execution Time', `${metrics.execution_time_ms} ms`, `${metrics.improvement_potential_pct}% can improve`],
-    ['CPU Usage', `${metrics.cpu_usage_pct}%`, metrics.risk_level],
-    ['Logical Reads', number(metrics.logical_reads), 'Can be reduced'],
-    ['Rows Returned', number(metrics.rows_returned), 'Estimated'],
-    ['Index Usage', `${metrics.index_usage_pct}%`, 'Can be improved'],
-    ['Query Cost', metrics.query_cost, metrics.confidence]
-  ];
-  $('metricsGrid').innerHTML = values.map(([label, value, note]) => `
-    <div class="metric"><small>${escapeHtml(label)}</small><strong>${escapeHtml(String(value))}</strong><em>${escapeHtml(String(note))}</em></div>
-  `).join('');
+function renderRiskCard(metrics, findings) {
+  const high = findings.filter(f => f.severity === 'High').length;
+  const medium = findings.filter(f => f.severity === 'Medium').length;
+  const low = findings.filter(f => f.severity === 'Low').length;
+  const levelClass = metrics.risk_level === 'High' ? 'risk-high' : metrics.risk_level === 'Medium' ? 'risk-medium' : 'risk-low';
+  $('metricsGrid').innerHTML = `
+    <div class="risk-card ${levelClass}">
+      <div class="risk-label">Risk Level</div>
+      <div class="risk-level">${escapeHtml(metrics.risk_level)}</div>
+      <div class="risk-counts">
+        <span class="pill High">${high} High</span>
+        <span class="pill Medium">${medium} Medium</span>
+        <span class="pill Low">${low} Low</span>
+      </div>
+      <div class="risk-potential">Improvement potential: ${escapeHtml(String(metrics.improvement_potential_pct))}% after fixes</div>
+      <div class="risk-note">Static analysis — validate with actual execution plan</div>
+    </div>
+  `;
 }
 
 function renderFindings(findings) {
@@ -323,14 +390,57 @@ function renderDependencies(data) {
   const missing = data.summary.missing_references;
   $('missingList').innerHTML = missing.length ? missing.map((name, index) => itemTemplate(index + 1, name, 'Paste this referenced object below to complete dependency-aware analysis.', 'High')).join('') : itemTemplate(1, 'No missing references', 'All detected referenced procedures are already known in this session.', 'Low');
 
-  const edges = data.dependency_map.edges;
-  $('dependencyMap').innerHTML = edges.length ? edges.map((edge) => `
-    <div class="edge">
-      <strong>${escapeHtml(edge.from)}</strong>
-      <em>${escapeHtml(edge.kind)}</em>
-      <strong>${escapeHtml(edge.to)}</strong>
-    </div>
-  `).join('') : '<div class="memory-object"><strong>No dependency edges yet</strong><span>Stored procedure calls, joins, and table references will appear here.</span></div>';
+  renderDepGraph(data.dependency_map);
+}
+
+function renderDepGraph(depMap) {
+  const svg = $('depGraph');
+  if (!svg) return;
+  const { nodes, edges } = depMap;
+  if (!edges.length) {
+    svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#67738a" font-size="13" dy=".3em">No dependency edges yet. Analyze a SQL object to build the map.</text>';
+    return;
+  }
+
+  const nodeW = 148, nodeH = 36, colGap = 80, rowGap = 54;
+  const procs = nodes.filter(n => n.type !== 'Table');
+  const tables = nodes.filter(n => n.type === 'Table');
+
+  const positions = {};
+  procs.forEach((n, i) => { positions[n.id.toLowerCase()] = { x: 20, y: 20 + i * (nodeH + rowGap) }; });
+  tables.forEach((n, i) => { positions[n.id.toLowerCase()] = { x: 20 + nodeW + colGap, y: 20 + i * (nodeH + rowGap) }; });
+
+  const totalH = Math.max(procs.length, tables.length) * (nodeH + rowGap) + 20;
+  svg.setAttribute('height', Math.max(totalH, 120));
+
+  const colorMap = { known: '#2f58ff', missing: '#cf263f', referenced: '#07936f' };
+
+  let markup = '<defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#94a3b8"/></marker></defs>';
+
+  edges.forEach(edge => {
+    const from = positions[edge.from.toLowerCase()];
+    const to = positions[edge.to.toLowerCase()];
+    if (!from || !to) return;
+    const x1 = from.x + nodeW, y1 = from.y + nodeH / 2;
+    const x2 = to.x, y2 = to.y + nodeH / 2;
+    const mx = (x1 + x2) / 2;
+    markup += `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>`;
+    const label = edge.kind;
+    markup += `<text x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle" font-size="10" fill="#67738a">${escapeHtml(label)}</text>`;
+  });
+
+  [...procs, ...tables].forEach(node => {
+    const pos = positions[node.id.toLowerCase()];
+    if (!pos) return;
+    const color = colorMap[node.status] || '#67738a';
+    const isTable = node.type === 'Table';
+    markup += `<rect x="${pos.x}" y="${pos.y}" width="${nodeW}" height="${nodeH}" rx="6" fill="${isTable ? '#f0fdf4' : '#eef2ff'}" stroke="${color}" stroke-width="1.5"/>`;
+    markup += `<text x="${pos.x + 10}" y="${pos.y + 13}" font-size="11" font-weight="700" fill="${color}">${escapeHtml(node.type)}</text>`;
+    const label = node.id.length > 18 ? node.id.slice(0, 16) + '\u2026' : node.id;
+    markup += `<text x="${pos.x + 10}" y="${pos.y + 27}" font-size="12" fill="#172033">${escapeHtml(label)}</text>`;
+  });
+
+  svg.innerHTML = markup;
 }
 
 function renderOptimization(data) {
@@ -386,8 +496,29 @@ function renderSchema(schema) {
   `).join('') : '');
   $('schemaReview').innerHTML = schema.quality_review.map((item, index) => itemTemplate(index + 1, item.title, item.detail, item.severity)).join('');
   $('migrationScript').textContent = schema.migration_script;
-  $('erdSummary').textContent = schema.erd_summary;
+  renderErd(schema.erd_summary);
   renderSchemaOutputs();
+}
+
+async function renderErd(erdText) {
+  const container = $('erdDiagram');
+  if (!erdText || !erdText.trim() || erdText.trim() === 'erDiagram') {
+    container.innerHTML = '<p class="erd-empty">No relationships to diagram yet.</p>';
+    return;
+  }
+  try {
+    if (window.mermaid) {
+      window.mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+      const id = 'erd' + Date.now();
+      const { svg } = await window.mermaid.render(id, erdText.trim());
+      container.innerHTML = svg;
+    } else {
+      container.innerHTML = `<pre class="code-output small-code">${escapeHtml(erdText)}</pre>`;
+    }
+  } catch (e) {
+    console.error('Mermaid error:', e, '\nERD text:', erdText);
+    container.innerHTML = `<pre class="code-output small-code">${escapeHtml(erdText)}</pre>`;
+  }
 }
 
 function renderSchemaOutputs() {
@@ -410,15 +541,49 @@ function renderSchemaOutputs() {
   });
 }
 
+function renderDeploymentReadiness(findings, suggestions) {
+  const high = findings.filter(f => f.severity === 'High' && f.title !== 'No major rule-based issue detected');
+  const medium = findings.filter(f => f.severity === 'Medium');
+  const ready = high.length === 0;
+  const statusClass = ready ? 'ready-yes' : 'ready-no';
+  const statusIcon = ready ? '✅' : '❌';
+  const statusText = ready ? 'READY TO DEPLOY' : 'NOT READY — fix High issues first';
+  const highLines = high.map(f => `<li>${escapeHtml(f.title)}</li>`).join('');
+  const medLines = medium.slice(0, 3).map(f => `<li>${escapeHtml(f.title)}</li>`).join('');
+  $('deploymentReadiness').innerHTML = `
+    <div class="readiness-card ${statusClass}">
+      <div class="readiness-status">${statusIcon} ${escapeHtml(statusText)}</div>
+      ${high.length ? `<ul class="readiness-list">${highLines}</ul>` : ''}
+      ${medium.length ? `<div class="readiness-medium">⚠️ ${medium.length} Medium issue${medium.length > 1 ? 's' : ''} recommended before deploy</div><ul class="readiness-list muted">${medLines}</ul>` : ''}
+    </div>
+  `;
+}
+
+function renderMissingRefBanner(missing) {
+  const banner = $('missingRefBanner');
+  if (!missing || missing.length === 0) {
+    banner.style.display = 'none';
+    return;
+  }
+  banner.style.display = 'flex';
+  banner.innerHTML = `
+    <span>⚠️ Missing dependenc${missing.length > 1 ? 'ies' : 'y'} detected: <strong>${missing.map(escapeHtml).join(', ')}</strong> — paste in Dependencies tab to complete analysis.</span>
+    <button onclick="setTab('dependencyView')">Go to Dependencies →</button>
+  `;
+}
+
 function renderEmpty() {
   $('summaryGrid').innerHTML = '';
   $('metricsGrid').innerHTML = '';
+  $('deploymentReadiness').innerHTML = '';
+  $('missingRefBanner').style.display = 'none';
   $('findingsList').innerHTML = itemTemplate(1, 'Waiting for SQL input', 'Paste a query or stored procedure and run analysis.', 'Low');
   $('suggestionsList').innerHTML = itemTemplate(1, 'No suggestions yet', 'Recommendations appear after analysis.', 'Low');
   $('impactList').innerHTML = itemTemplate(1, 'No impact yet', 'Risk and dependent objects appear after analysis.', 'Low');
   $('memoryList').innerHTML = '<div class="memory-object"><strong>No objects yet</strong><span>Run analysis to populate memory.</span></div>';
   $('missingList').innerHTML = itemTemplate(1, 'No missing references yet', 'Nested procedure calls will appear here.', 'Low');
-  $('dependencyMap').innerHTML = '<div class="memory-object"><strong>No dependency map yet</strong><span>Analyze a SQL object to create the first map.</span></div>';
+  const svg = $('depGraph');
+  if (svg) svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#67738a" font-size="13" dy=".3em">No dependency map yet. Analyze a SQL object to build the map.</text>';
   $('optimizedSql').textContent = '-- Run analysis first.';
   $('indexScripts').textContent = '-- Run analysis first.';
   $('planList').innerHTML = '';
@@ -426,7 +591,7 @@ function renderEmpty() {
   $('schemaTables').innerHTML = '<div class="schema-table"><strong>No schema yet</strong><span>Use DB Schema Agent to design or review a schema.</span></div>';
   $('schemaReview').innerHTML = itemTemplate(1, 'No schema review yet', 'Schema quality findings appear after design/review.', 'Low');
   $('migrationScript').textContent = '-- Run DB Schema Agent first.';
-  $('erdSummary').textContent = 'erDiagram';
+  $('erdDiagram').innerHTML = '<p class="erd-empty">Run DB Schema Agent to see the ERD diagram.</p>';
   renderSchemaOutputs();
 }
 

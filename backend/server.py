@@ -70,6 +70,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                 )
                 self.send_json(result)
                 return
+            if self.path == "/api/reset":
+                agent.reset()
+                self.send_json({"status": "reset"})
+                return
             self.send_error(HTTPStatus.NOT_FOUND, "Unknown API route")
         except ValueError as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
