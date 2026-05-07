@@ -8,53 +8,54 @@ function DepGraph({ depMap }) {
   }
 
   const { nodes, edges } = depMap;
-  const nodeW = 148, nodeH = 36, colGap = 80, rowGap = 54;
+  const nodeW = 140, nodeH = 32, colGap = 60, rowGap = 45;
   const procs = nodes.filter(n => n.type !== 'Table');
   const tables = nodes.filter(n => n.type === 'Table');
 
   const positions = {};
-  procs.forEach((n, i) => { positions[n.id.toLowerCase()] = { x: 20, y: 20 + i * (nodeH + rowGap) }; });
-  tables.forEach((n, i) => { positions[n.id.toLowerCase()] = { x: 20 + nodeW + colGap, y: 20 + i * (nodeH + rowGap) }; });
+  procs.forEach((n, i) => { positions[n.id.toLowerCase()] = { x: 15, y: 15 + i * (nodeH + rowGap) }; });
+  tables.forEach((n, i) => { positions[n.id.toLowerCase()] = { x: 15 + nodeW + colGap, y: 15 + i * (nodeH + rowGap) }; });
 
-  const totalH = Math.max(procs.length, tables.length) * (nodeH + rowGap) + 40;
+  const totalW = nodeW * 2 + colGap + 30;
+  const totalH = Math.max(procs.length, tables.length) * (nodeH + rowGap) + 30;
   const colorMap = { known: '#2f58ff', missing: '#cf263f', referenced: '#07936f' };
 
   return (
-    <svg width="100%" height={Math.max(totalH, 200)} style={{ display: 'block', minWidth: 400, maxWidth: '100%' }} viewBox={`0 0 ${Math.max(400, nodeW * 2 + colGap + 40)} ${Math.max(totalH, 200)}`}>
-      <defs>
-        <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-          <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
-        </marker>
-      </defs>
-      {edges.map((edge, i) => {
-        const from = positions[edge.from.toLowerCase()];
-        const to = positions[edge.to.toLowerCase()];
-        if (!from || !to) return null;
-        const x1 = from.x + nodeW, y1 = from.y + nodeH / 2;
-        const x2 = to.x, y2 = to.y + nodeH / 2;
-        const mx = (x1 + x2) / 2;
-        return (
-          <g key={i}>
-            <path d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} fill="none" stroke="#94a3b8" strokeWidth="1.5" markerEnd="url(#arr)" />
-            <text x={mx} y={(y1 + y2) / 2 - 4} textAnchor="middle" fontSize="10" fill="#67738a">{edge.kind}</text>
-          </g>
-        );
-      })}
-      {[...procs, ...tables].map((node) => {
-        const pos = positions[node.id.toLowerCase()];
-        if (!pos) return null;
-        const color = colorMap[node.status] || '#67738a';
-        const isTable = node.type === 'Table';
-        const label = node.id.length > 18 ? node.id.slice(0, 16) + '…' : node.id;
-        return (
-          <g key={node.id}>
-            <rect x={pos.x} y={pos.y} width={nodeW} height={nodeH} rx="6" fill={isTable ? '#f0fdf4' : '#eef2ff'} stroke={color} strokeWidth="1.5" />
-            <text x={pos.x + 10} y={pos.y + 13} fontSize="11" fontWeight="700" fill={color}>{node.type}</text>
-            <text x={pos.x + 10} y={pos.y + 27} fontSize="12" fill="#172033">{label}</text>
-          </g>
-        );
-      })}
-    </svg>
+    <svg width={totalW} height={Math.max(totalH, 150)} style={{ display: 'block', minWidth: totalW, flexShrink: 0 }}>
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
+          </marker>
+        </defs>
+        {edges.map((edge, i) => {
+          const from = positions[edge.from.toLowerCase()];
+          const to = positions[edge.to.toLowerCase()];
+          if (!from || !to) return null;
+          const x1 = from.x + nodeW, y1 = from.y + nodeH / 2;
+          const x2 = to.x, y2 = to.y + nodeH / 2;
+          const mx = (x1 + x2) / 2;
+          return (
+            <g key={i}>
+              <path d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} fill="none" stroke="#94a3b8" strokeWidth="1.5" markerEnd="url(#arr)" />
+              <text x={mx} y={(y1 + y2) / 2 - 4} textAnchor="middle" fontSize="9" fill="#67738a">{edge.kind}</text>
+            </g>
+          );
+        })}
+        {[...procs, ...tables].map((node) => {
+          const pos = positions[node.id.toLowerCase()];
+          if (!pos) return null;
+          const color = colorMap[node.status] || '#67738a';
+          const isTable = node.type === 'Table';
+          const label = node.id.length > 16 ? node.id.slice(0, 14) + '…' : node.id;
+          return (
+            <g key={node.id}>
+              <rect x={pos.x} y={pos.y} width={nodeW} height={nodeH} rx="5" fill={isTable ? '#f0fdf4' : '#eef2ff'} stroke={color} strokeWidth="1.5" />
+              <text x={pos.x + 8} y={pos.y + 12} fontSize="10" fontWeight="700" fill={color}>{node.type}</text>
+              <text x={pos.x + 8} y={pos.y + 24} fontSize="11" fill="#172033">{label}</text>
+            </g>
+          );
+        })}
+      </svg>
   );
 }
 
@@ -134,9 +135,9 @@ export default function DependenciesTab() {
           </div>
         </article>
 
-        <article className="card">
+        <article className="card" style={{ overflow: 'visible' }}>
           <div className="section-heading green">Dependency Map</div>
-          <div className="dependency-map">
+          <div className="dependency-map" style={{ overflowX: 'auto', overflowY: 'hidden', width: '100%' }}>
             <DepGraph depMap={dependency_map} />
           </div>
         </article>
