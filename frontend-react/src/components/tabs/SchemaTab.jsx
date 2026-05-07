@@ -4,7 +4,7 @@ import { designSchema } from '../../api/agentApi';
 import mermaid from 'mermaid';
 import html2canvas from 'html2canvas';
 
-mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'antiscript' });
 
 const SAMPLE_PROMPT = `Design a customer order management schema with customers, orders, order items, products, and payments. Include relationships, constraints, indexes, audit columns, migration script, rollback script, and identify schema quality issues.`;
 

@@ -20,7 +20,7 @@ function DepGraph({ depMap }) {
   const colorMap = { known: '#2f58ff', missing: '#cf263f', referenced: '#07936f' };
 
   return (
-    <svg width="100%" height={Math.max(totalH, 120)} style={{ display: 'block', minWidth: 320 }}>
+    <svg width="100%" height={Math.max(totalH, 200)} style={{ display: 'block', minWidth: 400, maxWidth: '100%' }} viewBox={`0 0 ${Math.max(400, nodeW * 2 + colGap + 40)} ${Math.max(totalH, 200)}`}>
       <defs>
         <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
           <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />

@@ -787,14 +787,14 @@ def build_schema_rollback(tables: list[dict[str, Any]], db_type: str) -> str:
 def build_erd_summary(tables: list[dict[str, Any]], relationships: list[dict[str, str]]) -> str:
     lines = ["erDiagram"]
     for rel in relationships:
-        line = "  " + rel['to'] + " ||--o{ " + rel['from'] + " : has"
+        line = "    " + rel['to'] + " ||--o{ " + rel['from'] + " : has"
         lines.append(line)
     for table in tables:
-        lines.append("  " + table['name'] + " {")
+        lines.append("    " + table['name'] + " {")
         for col in table["columns"]:
             safe_type = re.sub(r"[^a-zA-Z0-9_]", "_", col['type'])
-            lines.append("    " + safe_type + " " + col['name'])
-        lines.append("  }")
+            lines.append("        " + safe_type + " " + col['name'])
+        lines.append("    }")
     return "\n".join(lines)
 
 

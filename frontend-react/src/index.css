@@ -283,6 +283,9 @@ textarea {
 .two { grid-template-columns: 1.15fr 0.85fr; }
 .three { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 10px; }
 .dependency-layout { grid-template-columns: 0.8fr 1fr 1.2fr; }
+@media (max-width: 1400px) {
+  .dependency-layout { grid-template-columns: 1fr; }
+}
 .schema-layout { grid-template-columns: 0.95fr 1fr 1fr; }
 .schema-results { margin-top: 10px; }
 
@@ -417,8 +420,8 @@ h3 { margin: 14px 0 7px; font-size: 14px; }
 .schema-table strong { color: var(--blue); }
 .schema-table span { margin-top: 4px; color: var(--muted); font-size: 12px; }
 
-.dependency-map { overflow: auto; }
-.dependency-map svg { display: block; min-width: 320px; }
+.dependency-map { overflow: auto; min-height: 200px; }
+.dependency-map svg { display: block; min-width: 400px; max-width: 100%; }
 
 .edge {
   display: grid;
