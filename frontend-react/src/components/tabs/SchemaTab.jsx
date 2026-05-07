@@ -59,6 +59,26 @@ export default function SchemaTab() {
     URL.revokeObjectURL(url);
   };
 
+  const handleCopyMigrationScript = () => {
+    if (!currentSchema || !currentSchema.migration_script) {
+      alert('No migration script to copy yet.');
+      return;
+    }
+    
+    navigator.clipboard.writeText(currentSchema.migration_script).then(() => {
+      alert('Migration script copied to clipboard!');
+    }).catch(() => {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = currentSchema.migration_script;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      alert('Migration script copied to clipboard!');
+    });
+  };
+
   const handleDownloadPDF = async () => {
     if (!currentSchema) return alert('Run DB Schema Agent first.');
     
@@ -160,7 +180,26 @@ export default function SchemaTab() {
 
       <div className="grid two schema-results">
         <article className="card">
-          <div className="section-heading green">Migration Script</div>
+          <div className="section-heading green" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Migration Script</span>
+            {currentSchema && (
+              <button 
+                onClick={handleCopyMigrationScript}
+                style={{ 
+                  padding: '6px 12px', 
+                  border: '1px solid #dce3ef', 
+                  borderRadius: '6px', 
+                  background: '#fff', 
+                  color: '#2f58ff', 
+                  fontSize: '12px', 
+                  fontWeight: '800', 
+                  cursor: 'pointer' 
+                }}
+              >
+                📋
+              </button>
+            )}
+          </div>
           <pre className="code-output">{currentSchema ? currentSchema.migration_script : '-- Run DB Schema Agent first.'}</pre>
         </article>
         <article className="card">

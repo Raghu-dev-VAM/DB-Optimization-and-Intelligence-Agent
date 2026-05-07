@@ -42,10 +42,6 @@ export default function Topbar() {
       <div className="top-actions">
         <button className="ghost" onClick={handleNewSession}>New Session</button>
         <button className="ghost" onClick={handleSaveReport}>Save Report</button>
-        <button
-          className="icon-btn"
-          onClick={() => alert('Analyze mode: paste SQL and analyze.\nSchema mode: describe a schema and design it.')}
-        >?</button>
       </div>
     </header>
   );

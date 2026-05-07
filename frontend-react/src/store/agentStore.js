@@ -18,7 +18,7 @@ const useAgentStore = create((set) => ({
   setLoading: (loading) => set({ loading }),
   setSchemaLoading: (schemaLoading) => set({ schemaLoading }),
 
-  setAnalysis: (analysis, sql, dbType, sourceType) => {
+  setAnalysis: (analysis, sql, dbType, sourceType, preserveTab = false) => {
     const typeMap = {
       'Stored Procedure': 'Stored Procedure',
       'SQL Query': 'SQL Query',
@@ -27,14 +27,20 @@ const useAgentStore = create((set) => ({
       'DDL Script': 'DML Script',
       'DML Script': 'DML Script',
     };
-    set({
+    const updates = {
       currentAnalysis: analysis,
       primarySql: sql,
       primaryDbType: dbType,
       primarySourceType: sourceType,
       selectedSource: typeMap[analysis.summary.object_type] || 'auto',
-      activeTab: 'diagnose',
-    });
+    };
+    
+    // Only change tab if not preserving current tab
+    if (!preserveTab) {
+      updates.activeTab = 'diagnose';
+    }
+    
+    set(updates);
   },
 
   setSchema: (schema) => set({ currentSchema: schema }),

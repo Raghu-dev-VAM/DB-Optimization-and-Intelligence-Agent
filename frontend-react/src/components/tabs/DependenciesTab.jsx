@@ -79,8 +79,7 @@ export default function DependenciesTab() {
       setRelatedSql('');
       if (primarySql) {
         const updated = await analyzeSQL(primarySql, primaryDbType, primarySourceType);
-        setAnalysis(updated, primarySql, primaryDbType, primarySourceType);
-        setActiveTab('diagnose');
+        setAnalysis(updated, primarySql, primaryDbType, primarySourceType, true); // preserveTab = true
       }
     } catch (e) {
       alert(e.message);

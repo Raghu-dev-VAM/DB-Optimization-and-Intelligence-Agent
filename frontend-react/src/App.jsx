@@ -11,8 +11,8 @@ import SchemaTab from './components/tabs/SchemaTab';
 const TABS = [
   { id: 'diagnose', label: 'Diagnose' },
   { id: 'dependencies', label: 'Dependencies' },
-  { id: 'fix', label: 'Fix' },
-  { id: 'deploy', label: 'Deploy' },
+  { id: 'fix', label: 'Optimization' },
+  { id: 'deploy', label: 'Download' },
 ];
 
 const TAB_COMPONENTS = {

@@ -16,7 +16,7 @@ except ImportError:  # Allows running from inside the backend folder.
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FRONTEND = ROOT / "frontend"
+FRONTEND = ROOT / "frontend-react" / "dist"
 agent = SqlIntelligenceAgent()
 
 
