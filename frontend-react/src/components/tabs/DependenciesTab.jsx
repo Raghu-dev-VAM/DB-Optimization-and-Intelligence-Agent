@@ -17,11 +17,11 @@ function DepGraph({ depMap }) {
   tables.forEach((n, i) => { positions[n.id.toLowerCase()] = { x: 15 + nodeW + colGap, y: 15 + i * (nodeH + rowGap) }; });
 
   const totalW = nodeW * 2 + colGap + 30;
-  const totalH = Math.max(procs.length, tables.length) * (nodeH + rowGap) + 30;
+  const totalH = Math.max(procs.length, tables.length, 1) * (nodeH + rowGap) + 60;
   const colorMap = { known: '#2f58ff', missing: '#cf263f', referenced: '#07936f' };
 
   return (
-    <svg width={totalW} height={Math.max(totalH, 150)} style={{ display: 'block', minWidth: totalW, flexShrink: 0 }}>
+    <svg width={totalW} height={totalH} style={{ display: 'block', minWidth: totalW, minHeight: totalH, flexShrink: 0 }}>
         <defs>
           <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
             <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
@@ -137,7 +137,7 @@ export default function DependenciesTab() {
 
         <article className="card" style={{ overflow: 'visible' }}>
           <div className="section-heading green">Dependency Map</div>
-          <div className="dependency-map" style={{ overflowX: 'auto', overflowY: 'hidden', width: '100%' }}>
+          <div className="dependency-map" style={{ overflow: 'auto', width: '100%', maxHeight: '500px' }}>
             <DepGraph depMap={dependency_map} />
           </div>
         </article>
