@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 
 const useAgentStore = create((set) => ({
-  mode: 'analyze',
+  mode: 'schema',
+  analysisMode: 'static',
+  schemaMode: 'static',
   currentAnalysis: null,
   currentSchema: null,
   primarySql: null,
@@ -13,6 +15,8 @@ const useAgentStore = create((set) => ({
   schemaLoading: false,
 
   setMode: (mode) => set({ mode }),
+  setAnalysisMode: (analysisMode) => set({ analysisMode }),
+  setSchemaMode: (schemaMode) => set({ schemaMode }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedSource: (source) => set({ selectedSource: source }),
   setLoading: (loading) => set({ loading }),
@@ -53,7 +57,9 @@ const useAgentStore = create((set) => ({
     primarySourceType: 'auto',
     selectedSource: 'auto',
     activeTab: 'diagnose',
-    mode: 'analyze',
+    mode: 'schema',
+    analysisMode: 'static',
+    schemaMode: 'static',
   }),
 }));
 

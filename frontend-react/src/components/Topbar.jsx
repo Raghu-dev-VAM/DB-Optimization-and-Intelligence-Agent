@@ -9,11 +9,14 @@ const titles = {
 
 const descs = {
   analyze: 'Paste a stored procedure, query, function, view, DDL, or DML — get a full diagnosis, optimization plan, and deployment package.',
-  schema: 'Describe a schema in plain English or paste existing DDL — get tables, relationships, migration script, rollback, and ERD.',
+  schema: {
+    ai: 'Describe your database in plain English — AI will design tables, columns, relationships, ERD and quality review.',
+    static: 'Describe your database in plain English — get a static schema design with tables, columns, relationships, and ERD.',
+  },
 };
 
 export default function Topbar() {
-  const { mode, currentAnalysis, clearSession } = useAgentStore();
+  const { mode, currentAnalysis, clearSession, analysisMode, schemaMode } = useAgentStore();
 
   const handleNewSession = async () => {
     await resetSession();
@@ -36,8 +39,20 @@ export default function Topbar() {
   return (
     <header className="topbar">
       <div>
-        <h1>{titles[mode]}</h1>
-        <p>{descs[mode]}</p>
+        <h1>
+          {titles[mode]}
+          {mode === 'analyze' && (
+            <span style={{ marginLeft: 10, fontSize: 13, fontWeight: 500, padding: '2px 8px', borderRadius: 4, background: analysisMode === 'ai' ? '#eef2ff' : '#f0fdf4', color: analysisMode === 'ai' ? '#2f58ff' : '#07936f', verticalAlign: 'middle' }}>
+              {analysisMode === 'ai' ? '🤖 AI Analysis' : '⚡ Quick Analysis'}
+            </span>
+          )}
+          {mode === 'schema' && (
+            <span style={{ marginLeft: 10, fontSize: 13, fontWeight: 500, padding: '2px 8px', borderRadius: 4, background: schemaMode === 'ai' ? '#eef2ff' : '#f0fdf4', color: schemaMode === 'ai' ? '#2f58ff' : '#07936f', verticalAlign: 'middle' }}>
+              {schemaMode === 'ai' ? '🤖 AI Schema' : '⚡ Quick Schema'}
+            </span>
+          )}
+        </h1>
+        <p>{mode === 'schema' ? descs.schema[schemaMode] : descs[mode]}</p>
       </div>
       <div className="top-actions">
         <button className="ghost" onClick={handleNewSession}>New Session</button>

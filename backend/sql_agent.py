@@ -634,6 +634,19 @@ def to_json(data: Any) -> str:
 
 def infer_schema_from_prompt(prompt: str) -> list[dict[str, Any]]:
     lower = prompt.lower()
+
+    # Reject nonsense input — must contain at least one recognizable English word
+    words = re.findall(r'[a-z]{3,}', lower)
+    real_words = {"customer", "order", "product", "payment", "user", "account", "employee",
+                  "department", "invoice", "ticket", "policy", "claim", "item", "table",
+                  "database", "schema", "system", "manage", "track", "store", "design",
+                  "create", "build", "hospital", "patient", "doctor", "appointment", "school",
+                  "student", "course", "inventory", "supplier", "vendor", "report", "log",
+                  "prescription", "salary", "leave", "enrollment", "instructor", "teacher",
+                  "category", "review", "notification", "audit", "staff", "booking", "schedule"}
+    if not any(w in real_words for w in words):
+        raise ValueError("Input does not appear to be a valid schema description. Please describe your database requirement in plain English.")
+
     entities = []
     candidates = {
         "Customer": ["customer", "client", "member"],
@@ -645,6 +658,25 @@ def infer_schema_from_prompt(prompt: str) -> list[dict[str, Any]]:
         "Ticket": ["ticket", "incident", "case"],
         "Policy": ["policy", "insurance"],
         "Claim": ["claim"],
+        "Patient": ["patient"],
+        "Doctor": ["doctor", "physician", "surgeon"],
+        "Department": ["department", "dept"],
+        "Appointment": ["appointment", "booking", "schedule"],
+        "Prescription": ["prescription", "medicine", "drug"],
+        "Employee": ["employee", "staff", "worker"],
+        "Salary": ["salary", "payroll", "compensation"],
+        "LeaveRequest": ["leave", "absence", "time off"],
+        "JobRole": ["job role", "position", "designation"],
+        "Student": ["student", "learner", "pupil"],
+        "Course": ["course", "subject", "class"],
+        "Enrollment": ["enrollment", "enroll", "registration"],
+        "Instructor": ["instructor", "teacher", "professor"],
+        "Inventory": ["inventory", "stock", "warehouse"],
+        "Supplier": ["supplier", "vendor"],
+        "Category": ["category", "genre", "type"],
+        "Review": ["review", "rating", "feedback"],
+        "Notification": ["notification", "alert", "message"],
+        "AuditLog": ["audit", "log", "history", "trail"],
     }
     for name, words in candidates.items():
         if any(word in lower for word in words):
@@ -696,6 +728,99 @@ def default_table(entity: str) -> dict[str, Any]:
             ("Amount", "DECIMAL(18,2)", False, ""),
             ("PaymentStatus", "VARCHAR(30)", False, ""),
             ("PaidAt", "DATETIME2", True, ""),
+        ],
+        "Patient": [
+            ("PatientId", "INT", False, "PK"),
+            ("FullName", "VARCHAR(200)", False, ""),
+            ("DateOfBirth", "DATE", False, ""),
+            ("Gender", "VARCHAR(10)", True, ""),
+            ("Phone", "VARCHAR(20)", True, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Doctor": [
+            ("DoctorId", "INT", False, "PK"),
+            ("FullName", "VARCHAR(200)", False, ""),
+            ("Specialization", "VARCHAR(100)", True, ""),
+            ("DepartmentId", "INT", True, "FK"),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Department": [
+            ("DepartmentId", "INT", False, "PK"),
+            ("DepartmentName", "VARCHAR(100)", False, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Appointment": [
+            ("AppointmentId", "INT", False, "PK"),
+            ("PatientId", "INT", False, "FK"),
+            ("DoctorId", "INT", False, "FK"),
+            ("AppointmentDate", "DATETIME2", False, ""),
+            ("Status", "VARCHAR(30)", False, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Prescription": [
+            ("PrescriptionId", "INT", False, "PK"),
+            ("AppointmentId", "INT", False, "FK"),
+            ("MedicineName", "VARCHAR(200)", False, ""),
+            ("Dosage", "VARCHAR(100)", True, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Employee": [
+            ("EmployeeId", "INT", False, "PK"),
+            ("FullName", "VARCHAR(200)", False, ""),
+            ("Email", "VARCHAR(320)", False, "UQ"),
+            ("DepartmentId", "INT", True, "FK"),
+            ("JobRoleId", "INT", True, "FK"),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Department": [
+            ("DepartmentId", "INT", False, "PK"),
+            ("DepartmentName", "VARCHAR(100)", False, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "JobRole": [
+            ("JobRoleId", "INT", False, "PK"),
+            ("RoleName", "VARCHAR(100)", False, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Salary": [
+            ("SalaryId", "INT", False, "PK"),
+            ("EmployeeId", "INT", False, "FK"),
+            ("Amount", "DECIMAL(18,2)", False, ""),
+            ("EffectiveDate", "DATETIME2", False, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "LeaveRequest": [
+            ("LeaveRequestId", "INT", False, "PK"),
+            ("EmployeeId", "INT", False, "FK"),
+            ("StartDate", "DATE", False, ""),
+            ("EndDate", "DATE", False, ""),
+            ("Status", "VARCHAR(30)", False, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Student": [
+            ("StudentId", "INT", False, "PK"),
+            ("FullName", "VARCHAR(200)", False, ""),
+            ("Email", "VARCHAR(320)", False, "UQ"),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Course": [
+            ("CourseId", "INT", False, "PK"),
+            ("CourseName", "VARCHAR(200)", False, ""),
+            ("InstructorId", "INT", True, "FK"),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Enrollment": [
+            ("EnrollmentId", "INT", False, "PK"),
+            ("StudentId", "INT", False, "FK"),
+            ("CourseId", "INT", False, "FK"),
+            ("EnrolledAt", "DATETIME2", False, ""),
+            ("CreatedAt", "DATETIME2", False, ""),
+        ],
+        "Instructor": [
+            ("InstructorId", "INT", False, "PK"),
+            ("FullName", "VARCHAR(200)", False, ""),
+            ("Email", "VARCHAR(320)", False, "UQ"),
+            ("CreatedAt", "DATETIME2", False, ""),
         ],
     }.get(entity, [
         (f"{entity}Id", "INT", False, "PK"),

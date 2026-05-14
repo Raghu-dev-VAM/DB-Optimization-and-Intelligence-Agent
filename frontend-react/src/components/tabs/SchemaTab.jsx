@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import useAgentStore from '../../store/agentStore';
-import { designSchema } from '../../api/agentApi';
+import { designSchema, designSchemaAI, getMultiAgentStatus } from '../../api/agentApi';
 import mermaid from 'mermaid';
 import html2canvas from 'html2canvas';
 
@@ -9,9 +9,7 @@ mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'antis
 const SAMPLE_PROMPT = `Design a customer order management schema with customers, orders, order items, products, and payments. Include relationships, constraints, indexes, audit columns, migration script, rollback script, and identify schema quality issues.`;
 
 const SCHEMA_OUTPUTS = [
-  { type: 'ddl_script', title: 'DDL Script', desc: 'Create tables, keys, relationships, and indexes.', filename: 'schema-migration.sql' },
   { type: 'rollback_script', title: 'Rollback Script', desc: 'Drop generated schema objects in safe order.', filename: 'schema-rollback.sql' },
-  { type: 'erd_summary', title: 'ERD Summary', desc: 'Mermaid ERD relationship summary.', filename: 'schema-erd.mmd' },
   { type: 'schema_review_report', title: 'Schema Review Report', desc: 'Quality, relationships, impact, and scripts.', filename: 'schema-review-report.md' },
   { type: 'migration_plan', title: 'Migration Plan', desc: 'Deployment sequence and validation checklist.', filename: 'schema-migration-plan.md' },
 ];
@@ -32,13 +30,35 @@ function ErdDiagram({ erdText }) {
 
 export default function SchemaTab() {
   const [prompt, setPrompt] = useState(SAMPLE_PROMPT);
-  const { currentSchema, setSchema, schemaLoading, setSchemaLoading } = useAgentStore();
+  const [aiStatus, setAiStatus] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const { currentSchema, setSchema, schemaLoading, setSchemaLoading, schemaMode, setSchemaMode } = useAgentStore();
+
+  useEffect(() => {
+    const checkAiStatus = async () => {
+      try {
+        const status = await getMultiAgentStatus();
+        setAiStatus(status);
+      } catch {
+        setAiStatus({ connected: false });
+      }
+    };
+    checkAiStatus();
+  }, []);
 
   const handleDesign = async () => {
     if (!prompt.trim()) return alert('Describe a schema requirement or paste DDL first.');
     setSchemaLoading(true);
     try {
-      const result = await designSchema(prompt, 'SQL Server');
+      let result;
+      if (schemaMode === 'ai') {
+        if (!aiStatus?.connected) {
+          throw new Error('AI is not available. Check your LLM API key and connection, or switch to Quick Schema.');
+        }
+        result = await designSchemaAI(prompt, 'SQL Server');
+      } else {
+        result = await designSchema(prompt, 'SQL Server');
+      }
       setSchema(result);
     } catch (e) {
       alert(e.message);
@@ -60,23 +80,18 @@ export default function SchemaTab() {
   };
 
   const handleCopyMigrationScript = () => {
-    if (!currentSchema || !currentSchema.migration_script) {
-      alert('No migration script to copy yet.');
-      return;
-    }
-    
-    navigator.clipboard.writeText(currentSchema.migration_script).then(() => {
-      alert('Migration script copied to clipboard!');
-    }).catch(() => {
-      // Fallback for older browsers
+    if (!currentSchema || !currentSchema.migration_script) return;
+    const text = currentSchema.migration_script;
+    navigator.clipboard.writeText(text).catch(() => {
       const textArea = document.createElement('textarea');
-      textArea.value = currentSchema.migration_script;
+      textArea.value = text;
       document.body.appendChild(textArea);
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      alert('Migration script copied to clipboard!');
     });
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownloadPDF = async () => {
@@ -117,10 +132,68 @@ export default function SchemaTab() {
     <section className="tab-content">
       <div className="grid schema-layout">
         <article className="card">
-          <div className="section-heading green">DB Schema Agent</div>
-          <small className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
-            Describe a schema in plain English, or paste existing DDL to review it.
-          </small>
+          {/* AI status description */}
+          {aiStatus !== null && (
+            <div style={{
+              marginBottom: '10px',
+              padding: '10px 12px',
+              borderRadius: '6px',
+              border: '1px solid',
+              fontSize: '12px',
+              lineHeight: '1.5',
+              borderColor: aiStatus.connected ? '#bbf7d0' : '#fecdd3',
+              background: aiStatus.connected ? '#f0fdf4' : '#fff1f2',
+              color: aiStatus.connected ? '#07936f' : '#cf263f',
+            }}>
+              <span style={{
+                display: 'inline-block',
+                marginBottom: '6px',
+                padding: '3px 10px',
+                borderRadius: '999px',
+                border: '1px solid',
+                fontSize: '11px',
+                fontWeight: '700',
+                borderColor: aiStatus.connected ? '#bbf7d0' : '#fecdd3',
+                background: aiStatus.connected ? '#dcfce7' : '#ffe4e6',
+                color: aiStatus.connected ? '#07936f' : '#cf263f',
+              }}>
+                {aiStatus.connected ? '🤖 AI Connected' : 'AI Unavailable'}
+              </span>
+              <div style={{ marginTop: '6px' }}>
+              {aiStatus.connected
+                ? 'AI is available. Select AI Schema for AI-powered table design, relationships, and quality review. Or continue with Quick Schema for instant rule-based results.'
+                : 'AI is unavailable. Check your LLM API key, token limits, or internet connection. Switch to Quick Schema to continue without AI.'}
+              </div>
+            </div>
+          )}
+
+          {/* Mode toggle */}
+          <label>Schema Mode</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <button
+              className={`choice ${schemaMode === 'static' ? 'active' : ''}`}
+              onClick={() => setSchemaMode('static')}
+            >
+              Quick Schema
+            </button>
+            <button
+              className={`choice ${schemaMode === 'ai' ? 'active' : ''}`}
+              onClick={() => setSchemaMode('ai')}
+              disabled={aiStatus !== null && !aiStatus.connected}
+            >
+              AI Schema
+            </button>
+          </div>
+
+          {/* Mode info */}
+          <div className="analysis-info" style={{ marginBottom: 8 }}>
+            {schemaMode === 'ai' ? (
+              <small className="ai-info">🤖 <strong>AI Schema:</strong> AI designs tables, columns, relationships, and quality review from your description.</small>
+            ) : (
+              <small className="regular-info">⚡ <strong>Quick Schema:</strong> Rule-based keyword matching.</small>
+            )}
+          </div>
+
           <label>Schema requirement or existing DDL</label>
           <textarea
             value={prompt}
@@ -129,7 +202,7 @@ export default function SchemaTab() {
             style={{ minHeight: 220 }}
           />
           <button className="primary schema-run" onClick={handleDesign} disabled={schemaLoading}>
-            {schemaLoading ? 'Designing...' : 'Design / Review Schema'}
+            {schemaLoading ? 'Designing...' : schemaMode === 'ai' ? '🚀 AI Design Schema' : 'Design / Review Schema'}
           </button>
         </article>
 
@@ -181,23 +254,23 @@ export default function SchemaTab() {
       <div className="grid two schema-results">
         <article className="card">
           <div className="section-heading green" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Migration Script</span>
+            <span>DDL Script</span>
+            <small style={{ color: '#666', fontWeight: 400, fontSize: '12px' }}>Create tables, keys, relationships, and indexes.</small>
             {currentSchema && (
-              <button 
-                onClick={handleCopyMigrationScript}
-                style={{ 
-                  padding: '6px 12px', 
-                  border: '1px solid #dce3ef', 
-                  borderRadius: '6px', 
-                  background: '#fff', 
-                  color: '#2f58ff', 
-                  fontSize: '12px', 
-                  fontWeight: '800', 
-                  cursor: 'pointer' 
-                }}
-              >
-                📋
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={handleCopyMigrationScript}
+                  style={{ padding: '6px 12px', border: '1px solid #dce3ef', borderRadius: '6px', background: '#fff', color: copied ? '#07936f' : '#2f58ff', fontSize: '12px', fontWeight: '800', cursor: 'pointer', transition: 'color 0.2s' }}
+                >
+                  {copied ? 'Copied ✓' : '📋'}
+                </button>
+                <button 
+                  onClick={() => handleDownload('ddl_script', 'schema-migration.sql')}
+                  style={{ padding: '6px 12px', border: '1px solid #dce3ef', borderRadius: '6px', background: '#fff', color: '#2f58ff', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
+                >
+                  ⬇ Download
+                </button>
+              </div>
             )}
           </div>
           <pre className="code-output">{currentSchema ? currentSchema.migration_script : '-- Run DB Schema Agent first.'}</pre>

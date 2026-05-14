@@ -19,7 +19,7 @@ function ItemCard({ num, title, text, severity }) {
   );
 }
 
-function RiskCard({ metrics, findings }) {
+function RiskCard({ metrics, findings, analysisMode }) {
   const high = findings.filter(f => f.severity === 'High').length;
   const medium = findings.filter(f => f.severity === 'Medium').length;
   const low = findings.filter(f => f.severity === 'Low').length;
@@ -34,7 +34,46 @@ function RiskCard({ metrics, findings }) {
         <span className="pill Low">{low} Low</span>
       </div>
       <div className="risk-potential">Improvement potential: {metrics.improvement_potential_pct}% after fixes</div>
-      <div className="risk-note">Static analysis — validate with actual execution plan</div>
+      <div className="risk-note">
+        {analysisMode === 'ai' ? 'AI-powered analysis — validate with actual execution plan' : 'Static analysis — validate with actual execution plan'}
+      </div>
+    </div>
+  );
+}
+
+function AIStatusBanner({ analysis, analysisMode }) {
+  if (analysisMode === 'static') {
+    return (
+      <div className="ai-status-banner ai-fallback">
+        <div className="ai-status-content">
+          <span className="ai-status-text">⚡ Quick Analysis — Rule-based output. No AI involved.</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!analysis?.ai_status) return null;
+
+  const isEnhanced = analysis.ai_enhanced;
+  const status = analysis.ai_status;
+  const insights = analysis.ai_insights || {};
+
+  return (
+    <div className={`ai-status-banner ${isEnhanced ? 'ai-enhanced' : 'ai-fallback'}`}>
+      <div className="ai-status-content">
+        <span className="ai-status-text">{status}</span>
+        {isEnhanced && insights.complexity_score && (
+          <span className="ai-complexity">Complexity: {insights.complexity_score}/10</span>
+        )}
+        {insights.processing_time && (
+          <span className="ai-timing">{insights.processing_time.toFixed(1)}s</span>
+        )}
+      </div>
+      {isEnhanced && insights.ai_explanation && (
+        <div className="ai-explanation">
+          <small>🤖 AI Insight: {insights.ai_explanation}</small>
+        </div>
+      )}
     </div>
   );
 }
@@ -81,27 +120,27 @@ function DeploymentReadiness({ findings }) {
 }
 
 export default function DiagnoseTab() {
-  const { currentAnalysis, setActiveTab } = useAgentStore();
+  const { currentAnalysis, setActiveTab, analysisMode } = useAgentStore();
 
   const summaryItems = currentAnalysis ? [
-    ['Object Type', currentAnalysis.summary.object_type],
-    ['Execution Type', currentAnalysis.summary.execution_type],
-    ['Tables Involved', currentAnalysis.summary.tables_involved.join(', ') || 'None'],
-    ['Joins Used', String(currentAnalysis.summary.joins_used.length)],
-    ['Filters Applied', String(currentAnalysis.summary.filters_applied.length)],
-    ['Group By', currentAnalysis.summary.group_by ? 'Yes' : 'No'],
-    ['Order By', currentAnalysis.summary.order_by ? 'Yes' : 'No'],
-    ['Missing Objects', currentAnalysis.summary.missing_references.length ? currentAnalysis.summary.missing_references.join(', ') : 'None'],
+    ['Object Type', currentAnalysis.summary?.object_type || 'Unknown'],
+    ['Execution Type', currentAnalysis.summary?.execution_type || 'Unknown'],
+    ['Tables Involved', (currentAnalysis.summary?.tables_involved || []).join(', ') || 'None'],
+    ['Joins Used', String((currentAnalysis.summary?.joins_used || []).length)],
+    ['Filters Applied', String((currentAnalysis.summary?.filters_applied || []).length)],
+    ['Group By', currentAnalysis.summary?.group_by ? 'Yes' : 'No'],
+    ['Order By', currentAnalysis.summary?.order_by ? 'Yes' : 'No'],
+    ['Missing Objects', (currentAnalysis.summary?.missing_references || []).length ? (currentAnalysis.summary?.missing_references || []).join(', ') : 'None'],
   ] : [];
 
   const impactItems = currentAnalysis ? [
-    ['Affected Tables', currentAnalysis.impact.affected_tables.join(', ') || 'None'],
-    ['Dependent Objects', currentAnalysis.impact.dependent_objects.join(', ') || 'None'],
-    ['Missing Objects', currentAnalysis.impact.missing_objects.join(', ') || 'None'],
-    ['Downstream', currentAnalysis.impact.downstream.join(', ')],
-    ['Risk Level', currentAnalysis.impact.risk_level],
-    ['Deployment Complexity', currentAnalysis.impact.deployment_complexity],
-    ['Rollback', currentAnalysis.impact.rollback],
+    ['Affected Tables', (currentAnalysis.impact?.affected_tables || []).join(', ') || 'None'],
+    ['Dependent Objects', (currentAnalysis.impact?.dependent_objects || []).join(', ') || 'None'],
+    ['Missing Objects', (currentAnalysis.impact?.missing_objects || []).join(', ') || 'None'],
+    ['Downstream', (currentAnalysis.impact?.downstream || []).join(', ')],
+    ['Risk Level', currentAnalysis.impact?.risk_level || 'Unknown'],
+    ['Deployment Complexity', currentAnalysis.impact?.deployment_complexity || 'Unknown'],
+    ['Rollback', currentAnalysis.impact?.rollback || 'Not specified'],
   ] : [];
 
   const findings = currentAnalysis ? currentAnalysis.findings : [];
@@ -110,10 +149,13 @@ export default function DiagnoseTab() {
   return (
     <section className="tab-content">
       {currentAnalysis && (
-        <MissingBanner
-          missing={currentAnalysis.summary.missing_references}
-          onGoToDeps={() => setActiveTab('dependencies')}
-        />
+        <>
+          <AIStatusBanner analysis={currentAnalysis} analysisMode={analysisMode} />
+          <MissingBanner
+            missing={currentAnalysis.summary?.missing_references || []}
+            onGoToDeps={() => setActiveTab('dependencies')}
+          />
+        </>
       )}
 
       <div className="grid two">
@@ -124,21 +166,21 @@ export default function DiagnoseTab() {
               {summaryItems.map(([label, value]) => (
                 <div key={label} className="summary-cell">
                   <small>{label}</small>
-                  <strong>{value}</strong>
+                  <strong style={{ wordBreak: 'break-word', whiteSpace: 'normal' }}>{value}</strong>
                 </div>
               ))}
             </div>
           ) : <div className="summary-grid" />}
           <h3>What this object does</h3>
           <p className="explanation">
-            {currentAnalysis ? currentAnalysis.summary.explanation : 'Paste a SQL object and run analysis.'}
+            {currentAnalysis ? (currentAnalysis.summary?.explanation || 'Test analysis completed.') : 'Paste a SQL object and run analysis.'}
           </p>
         </article>
 
         <article className="card metric-card">
           <div className="section-heading blue">Risk Overview</div>
           {currentAnalysis
-            ? <RiskCard metrics={currentAnalysis.metrics} findings={findings} />
+            ? <RiskCard metrics={currentAnalysis.metrics || {}} findings={findings} analysisMode={analysisMode} />
             : <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 8 }}>Risk overview appears after analysis.</div>
           }
         </article>

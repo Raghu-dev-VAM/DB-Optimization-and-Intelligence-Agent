@@ -1,0 +1,6 @@
+flask
+flask-cors
+pyautogen
+python-dotenv
+requests
+groq

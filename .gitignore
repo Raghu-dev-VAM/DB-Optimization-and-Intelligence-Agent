@@ -3,3 +3,13 @@ __pycache__/
 .venv/
 server.log
 server.err.log
+server-*.log
+server-*.err.log
+.env
+node_modules/
+frontend-react/dist/
+test_*.py
+test_interface.html
+TESTING_GUIDE.md
+run_agent.py
+start_server.py
