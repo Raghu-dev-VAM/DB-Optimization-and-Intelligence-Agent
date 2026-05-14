@@ -3,5 +3,5 @@ services:
     name: db-optimization-intelligence-agent
     runtime: python
     plan: free
-    buildCommand: cd frontend-react && npm install && npm run build
-    startCommand: python -B run_agent.py
+    buildCommand: pip install -r requirements.txt && cd frontend-react && npm install && npm run build
+    startCommand: python -B backend/server.py
