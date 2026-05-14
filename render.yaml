@@ -4,4 +4,4 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt && cd frontend-react && npm install && npm run build
-    startCommand: python -B backend/server.py
+    startCommand: cd /opt/render/project/src && python -B backend/server.py
