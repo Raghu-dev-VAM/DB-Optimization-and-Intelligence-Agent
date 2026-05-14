@@ -7,7 +7,6 @@ import json
 import re
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-import requests
 from datetime import datetime
 
 from agent_config import sql_agent_system
