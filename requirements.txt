@@ -4,3 +4,4 @@ pyautogen
 python-dotenv
 requests
 groq
+httpx
