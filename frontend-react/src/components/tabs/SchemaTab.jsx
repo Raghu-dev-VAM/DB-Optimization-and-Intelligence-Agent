@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import useAgentStore from '../../store/agentStore';
-import { designSchema, designSchemaAI, getMultiAgentStatus } from '../../api/agentApi';
+import { designSchema, suggestDbName, executeInDB } from '../../api/agentApi';
 import mermaid from 'mermaid';
 import html2canvas from 'html2canvas';
 
@@ -11,7 +11,6 @@ const SAMPLE_PROMPT = `Design a customer order management schema with customers,
 const SCHEMA_OUTPUTS = [
   { type: 'rollback_script', title: 'Rollback Script', desc: 'Drop generated schema objects in safe order.', filename: 'schema-rollback.sql' },
   { type: 'schema_review_report', title: 'Schema Review Report', desc: 'Quality, relationships, impact, and scripts.', filename: 'schema-review-report.md' },
-  { type: 'migration_plan', title: 'Migration Plan', desc: 'Deployment sequence and validation checklist.', filename: 'schema-migration-plan.md' },
 ];
 
 function ErdDiagram({ erdText }) {
@@ -28,42 +27,57 @@ function ErdDiagram({ erdText }) {
   return <div ref={ref} className="erd-diagram" />;
 }
 
+
+const DB_TYPES = ['SQL Server'];
+
 export default function SchemaTab() {
   const [prompt, setPrompt] = useState(SAMPLE_PROMPT);
-  const [aiStatus, setAiStatus] = useState(null);
+  const [dbType, setDbType] = useState('SQL Server');
   const [copied, setCopied] = useState(false);
-  const { currentSchema, setSchema, schemaLoading, setSchemaLoading, schemaMode, setSchemaMode } = useAgentStore();
-
-  useEffect(() => {
-    const checkAiStatus = async () => {
-      try {
-        const status = await getMultiAgentStatus();
-        setAiStatus(status);
-      } catch {
-        setAiStatus({ connected: false });
-      }
-    };
-    checkAiStatus();
-  }, []);
+  const [dbServer, setDbServer] = useState('localhost');
+  const [dbName, setDbName] = useState('');
+  const [useWindowsAuth, setUseWindowsAuth] = useState(true);
+  const [dbUser, setDbUser] = useState('');
+  const [dbPass, setDbPass] = useState('');
+  const [dbStatus, setDbStatus] = useState(null);
+  const [dbExecuting, setDbExecuting] = useState(false);
+  const [previewContent, setPreviewContent] = useState('');
+  const [previewTitle, setPreviewTitle] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewCopied, setPreviewCopied] = useState(false);
+  const { currentSchema, setSchema, schemaLoading, setSchemaLoading } = useAgentStore();
 
   const handleDesign = async () => {
     if (!prompt.trim()) return alert('Describe a schema requirement or paste DDL first.');
     setSchemaLoading(true);
+    setDbStatus(null);
     try {
-      let result;
-      if (schemaMode === 'ai') {
-        if (!aiStatus?.connected) {
-          throw new Error('AI is not available. Check your LLM API key and connection, or switch to Quick Schema.');
-        }
-        result = await designSchemaAI(prompt, 'SQL Server');
-      } else {
-        result = await designSchema(prompt, 'SQL Server');
-      }
+      const result = await designSchema(prompt, dbType);
       setSchema(result);
+      try {
+        const suggested = await suggestDbName(prompt);
+        setDbName(suggested);
+      } catch { /* keep existing */ }
     } catch (e) {
       alert(e.message);
     } finally {
       setSchemaLoading(false);
+    }
+  };
+
+  const handleExecuteInDB = async () => {
+    if (!currentSchema) return alert('Run DB Schema Agent first to generate a schema.');
+    if (!dbServer.trim()) return alert('Enter a SQL Server name.');
+    if (!dbName.trim()) return alert('Enter a database name.');
+    setDbExecuting(true);
+    setDbStatus(null);
+    try {
+      const result = await executeInDB(dbServer, dbName, currentSchema.migration_script, useWindowsAuth, dbUser, dbPass);
+      setDbStatus({ type: 'success', message: `✅ ${result.message} Open SSMS and refresh to see '${dbName}'.` });
+    } catch (e) {
+      setDbStatus({ type: 'error', message: `❌ ${e.message}` });
+    } finally {
+      setDbExecuting(false);
     }
   };
 
@@ -132,68 +146,10 @@ export default function SchemaTab() {
     <section className="tab-content">
       <div className="grid schema-layout">
         <article className="card">
-          {/* AI status description */}
-          {aiStatus !== null && (
-            <div style={{
-              marginBottom: '10px',
-              padding: '10px 12px',
-              borderRadius: '6px',
-              border: '1px solid',
-              fontSize: '12px',
-              lineHeight: '1.5',
-              borderColor: aiStatus.connected ? '#bbf7d0' : '#fecdd3',
-              background: aiStatus.connected ? '#f0fdf4' : '#fff1f2',
-              color: aiStatus.connected ? '#07936f' : '#cf263f',
-            }}>
-              <span style={{
-                display: 'inline-block',
-                marginBottom: '6px',
-                padding: '3px 10px',
-                borderRadius: '999px',
-                border: '1px solid',
-                fontSize: '11px',
-                fontWeight: '700',
-                borderColor: aiStatus.connected ? '#bbf7d0' : '#fecdd3',
-                background: aiStatus.connected ? '#dcfce7' : '#ffe4e6',
-                color: aiStatus.connected ? '#07936f' : '#cf263f',
-              }}>
-                {aiStatus.connected ? '🤖 AI Connected' : 'AI Unavailable'}
-              </span>
-              <div style={{ marginTop: '6px' }}>
-              {aiStatus.connected
-                ? 'AI is available. Select AI Schema for AI-powered table design, relationships, and quality review. Or continue with Quick Schema for instant rule-based results.'
-                : 'AI is unavailable. Check your LLM API key, token limits, or internet connection. Switch to Quick Schema to continue without AI.'}
-              </div>
-            </div>
-          )}
-
-          {/* Mode toggle */}
-          <label>Schema Mode</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            <button
-              className={`choice ${schemaMode === 'static' ? 'active' : ''}`}
-              onClick={() => setSchemaMode('static')}
-            >
-              Quick Schema
-            </button>
-            <button
-              className={`choice ${schemaMode === 'ai' ? 'active' : ''}`}
-              onClick={() => setSchemaMode('ai')}
-              disabled={aiStatus !== null && !aiStatus.connected}
-            >
-              AI Schema
-            </button>
-          </div>
-
-          {/* Mode info */}
-          <div className="analysis-info" style={{ marginBottom: 8 }}>
-            {schemaMode === 'ai' ? (
-              <small className="ai-info">🤖 <strong>AI Schema:</strong> AI designs tables, columns, relationships, and quality review from your description.</small>
-            ) : (
-              <small className="regular-info">⚡ <strong>Quick Schema:</strong> Rule-based keyword matching.</small>
-            )}
-          </div>
-
+          <label>Database Type</label>
+          <select value={dbType} onChange={(e) => setDbType(e.target.value)} style={{ marginBottom: 10 }}>
+            {DB_TYPES.map(t => <option key={t}>{t}</option>)}
+          </select>
           <label>Schema requirement or existing DDL</label>
           <textarea
             value={prompt}
@@ -202,7 +158,7 @@ export default function SchemaTab() {
             style={{ minHeight: 220 }}
           />
           <button className="primary schema-run" onClick={handleDesign} disabled={schemaLoading}>
-            {schemaLoading ? 'Designing...' : schemaMode === 'ai' ? '🚀 AI Design Schema' : 'Design / Review Schema'}
+            {schemaLoading ? 'Designing...' : 'Design Schema'}
           </button>
         </article>
 
@@ -274,17 +230,60 @@ export default function SchemaTab() {
             )}
           </div>
           <pre className="code-output">{currentSchema ? currentSchema.migration_script : '-- Run DB Schema Agent first.'}</pre>
+
+          {/* Execute in DB panel — SQL Server only */}
+          {dbType === 'SQL Server' && (
+          <div style={{ marginTop: 16, borderTop: '1px solid #e5e7eb', paddingTop: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: '#1e293b' }}>⚡ Execute in SQL Server</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={{ fontSize: 11, color: '#64748b' }}>Server</label>
+                <input
+                  value={dbServer}
+                  onChange={e => setDbServer(e.target.value)}
+                  placeholder="localhost or DESKTOP\SQLEXPRESS"
+                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12 }}
+                />
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={{ fontSize: 11, color: '#64748b' }}>Database Name</label>
+                <input
+                  value={dbName}
+                  onChange={e => setDbName(e.target.value)}
+                  placeholder="Auto-suggested after design"
+                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12 }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={useWindowsAuth} onChange={e => setUseWindowsAuth(e.target.checked)} />
+                Windows Authentication
+              </label>
+            </div>
+            {!useWindowsAuth && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <input value={dbUser} onChange={e => setDbUser(e.target.value)} placeholder="Username" style={{ flex: 1, padding: '6px 8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12 }} />
+                <input value={dbPass} onChange={e => setDbPass(e.target.value)} placeholder="Password" type="password" style={{ flex: 1, padding: '6px 8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12 }} />
+              </div>
+            )}
+            <button
+              onClick={handleExecuteInDB}
+              disabled={dbExecuting || !currentSchema}
+              style={{ padding: '8px 18px', background: dbExecuting ? '#94a3b8' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13, cursor: dbExecuting ? 'not-allowed' : 'pointer' }}
+            >
+              {dbExecuting ? 'Executing...' : '🚀 Execute in SQL Server'}
+            </button>
+            {dbStatus && (
+              <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 6, fontSize: 12, background: dbStatus.type === 'success' ? '#f0fdf4' : '#fff1f2', color: dbStatus.type === 'success' ? '#15803d' : '#cf263f', border: `1px solid ${dbStatus.type === 'success' ? '#bbf7d0' : '#fecdd3'}` }}>
+                {dbStatus.message}
+              </div>
+            )}
+          </div>
+          )}
         </article>
         <article className="card">
-          <div className="section-heading red">Rollback / ERD / Reports</div>
-          <div className="outputs">{SCHEMA_OUTPUTS.map(({ type, title, desc, filename }) => (
-            <button key={type} className="output-card" onClick={() => handleDownload(type, filename)}>
-              <strong>{title}</strong>
-              <span>{desc}</span>
-              <small>Download</small>
-            </button>
-          ))}</div>
-          <div className="section-heading blue" style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="section-heading blue" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Entity Relationship Diagram</span>
             {currentSchema && (
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -310,6 +309,42 @@ export default function SchemaTab() {
           )}
         </article>
       </div>
+
+      <div className="grid two" style={{ marginTop: 10 }}>
+        {SCHEMA_OUTPUTS.map(({ type, title, desc, filename }) => (
+          <article key={type} className="card">
+            <div className="section-heading-row">
+              <div className="section-heading red">{title}</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="view-btn" onClick={() => {
+                  const text = currentSchema?.artifacts[type] || '';
+                  setPreviewTitle(title);
+                  setPreviewContent(text);
+                  setShowPreview(true);
+                }}>View</button>
+                <button className="download-btn" onClick={() => handleDownload(type, filename)}>⬇️ Download</button>
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: '#67738a', margin: '4px 0 0' }}>{desc}</p>
+          </article>
+        ))}
+      </div>
+      {showPreview && (
+        <article className="card" style={{ marginTop: 10 }}>
+          <div className="section-heading-row">
+            <div className="section-heading green">{previewTitle} Preview</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="copy-btn" onClick={() => {
+                navigator.clipboard.writeText(previewContent);
+                setPreviewCopied(true);
+                setTimeout(() => setPreviewCopied(false), 2000);
+              }}>{previewCopied ? 'Copied ✓' : 'Copy'}</button>
+              <button className="copy-btn" onClick={() => setShowPreview(false)}>✕ Close</button>
+            </div>
+          </div>
+          <pre className="code-output">{previewContent}</pre>
+        </article>
+      )}
     </section>
   );
 }

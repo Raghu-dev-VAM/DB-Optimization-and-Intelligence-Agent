@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import useAgentStore from '../../store/agentStore';
-import { addRelatedObject, analyzeSQL, analyzeMultiAgent } from '../../api/agentApi';
+import { addRelatedObject, analyzeSQL } from '../../api/agentApi';
 
 function DepGraph({ depMap }) {
   if (!depMap || !depMap.edges.length) {
@@ -62,7 +62,7 @@ function DepGraph({ depMap }) {
 export default function DependenciesTab() {
   const [relatedSql, setRelatedSql] = useState('');
   const [adding, setAdding] = useState(false);
-  const { currentAnalysis, primarySql, primaryDbType, primarySourceType, setAnalysis, setActiveTab, analysisMode } = useAgentStore();
+  const { currentAnalysis, primarySql, primaryDbType, primarySourceType, setAnalysis, setActiveTab } = useAgentStore();
 
   if (!currentAnalysis) {
     return <div className="empty-state"><p>Run an analysis first to see dependencies.</p></div>;
@@ -79,12 +79,7 @@ export default function DependenciesTab() {
       await addRelatedObject(relatedSql, primaryDbType || 'SQL Server', 'auto');
       setRelatedSql('');
       if (primarySql) {
-        let updated;
-        if (analysisMode === 'ai') {
-          updated = await analyzeMultiAgent(primarySql, primaryDbType, 'full_analysis');
-        } else {
-          updated = await analyzeSQL(primarySql, primaryDbType, primarySourceType);
-        }
+        const updated = await analyzeSQL(primarySql, primaryDbType, primarySourceType);
         setAnalysis(updated, primarySql, primaryDbType, primarySourceType, true);
       }
     } catch (e) {

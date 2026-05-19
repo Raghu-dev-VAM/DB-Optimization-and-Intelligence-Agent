@@ -235,9 +235,7 @@ IMPORTANT: The optimized_sql must be complete and runnable."""
                     })
         
         estimated_improvement = {
-            "performance_gain": "15-40%",
-            "io_reduction": "20-50%",
-            "confidence": "Medium - based on static analysis"
+            "confidence": "Static analysis only — run actual execution plan to measure real improvement."
         }
         
         return {

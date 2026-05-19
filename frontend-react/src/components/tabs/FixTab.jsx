@@ -7,7 +7,7 @@ export default function FixTab() {
     return <div className="empty-state"><p>Run an analysis first to see optimization outputs.</p></div>;
   }
 
-  const { optimized_sql, index_scripts, execution_plan } = currentAnalysis;
+  const { optimized_sql, index_scripts } = currentAnalysis;
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -32,19 +32,7 @@ export default function FixTab() {
         </article>
       </div>
 
-      <article className="card" style={{ marginTop: 10 }}>
-        <div className="section-heading blue">Execution Plan Review</div>
-        <div className="plan-list">
-          {execution_plan.operators.map((op, i) => (
-            <div key={i} className="plan-op">
-              <strong>{op.operator} <span className={`pill ${op.risk}`}>{op.risk}</span></strong>
-              <p>{op.note}</p>
-            </div>
-          ))}
-          <div className="plan-op"><strong>Statistics</strong><p>{execution_plan.statistics}</p></div>
-          <div className="plan-op"><strong>Memory Grant</strong><p>{execution_plan.memory_grant}</p></div>
-        </div>
-      </article>
+
     </section>
   );
 }

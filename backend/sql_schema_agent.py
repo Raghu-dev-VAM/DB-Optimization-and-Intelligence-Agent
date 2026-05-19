@@ -31,7 +31,6 @@ class SQLSchemaAgent:
         rollback = self._build_rollback(tables, db_type)
         erd = self._build_erd(tables, relationships)
         report = self._build_report(tables, relationships, quality_review, ddl, rollback)
-        migration_plan = self._build_migration_plan(tables, relationships)
 
         return {
             "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -50,11 +49,26 @@ class SQLSchemaAgent:
                 "rollback_script": rollback,
                 "erd_summary": erd,
                 "schema_review_report": report,
-                "migration_plan": migration_plan,
             },
         }
 
+    def suggest_db_name(self, prompt: str) -> str:
+        """Extract a clean database name from the user prompt using AI"""
+        system_message = "You are a database naming assistant. Respond with valid JSON only."
+        user_prompt = f"""Given this database requirement, suggest a short PascalCase database name (no spaces, end with DB).
+Requirement: {prompt}
+Respond with exactly: {{"db_name": "SuggestedNameDB"}}"""
+        try:
+            result = groq_client.call_ai(system_message, user_prompt, timeout=10)
+            name = result.get("db_name", "").strip()
+            # Sanitize: only alphanumeric and underscores
+            name = re.sub(r"[^a-zA-Z0-9_]", "", name)
+            return name if name else "NewDatabaseDB"
+        except Exception:
+            return "NewDatabaseDB"
+
     def _call_ai(self, prompt: str, db_type: str) -> Dict[str, Any]:
+
         system_message = """You are an expert database architect. Design optimal database schemas based on requirements.
 Always respond with valid JSON only. No markdown, no explanation outside JSON."""
 
@@ -111,57 +125,98 @@ Rules:
             raise Exception(f"AI schema design failed: {str(e)}")
 
     def _build_ddl(self, tables, relationships, db_type: str) -> str:
-        lines = [
-            f"-- AI-Generated Migration Script for {db_type}",
-            "-- TODO: Replace YourDatabaseName with your actual database name",
-            "USE [YourDatabaseName];",
-            "GO",
-            "",
-        ]
+        is_pg = db_type == "PostgreSQL"
+        is_oracle = db_type == "Oracle"
+        is_mssql = not is_pg and not is_oracle
+
+        if is_mssql:
+            lines = [
+                f"-- AI-Generated DDL Script for {db_type}",
+                "-- TODO: Replace YourDatabaseName with your actual database name",
+                "USE [YourDatabaseName];",
+                "GO",
+                "",
+            ]
+        else:
+            lines = [f"-- AI-Generated DDL Script for {db_type}", ""]
+
         for table in tables:
-            safe_name = f"[{table['name']}]"
-            lines.append(f"CREATE TABLE {safe_name} (")
+            tname = f"[{table['name']}]" if is_mssql else f"\"{table['name']}\""
+            lines.append(f"CREATE TABLE {tname} (")
             col_lines = []
             for col in table["columns"]:
                 null = "NULL" if col.get("nullable") else "NOT NULL"
+                ctype = col["type"]
+                # Normalize DATETIME2 per platform
+                if is_pg:
+                    ctype = re.sub(r"(?i)\bDATETIME2\b", "TIMESTAMP", ctype)
+                elif is_oracle:
+                    ctype = re.sub(r"(?i)\bDATETIME2\b", "TIMESTAMP", ctype)
+                    ctype = re.sub(r"(?i)\bVARCHAR\b", "VARCHAR2", ctype)
+                    ctype = re.sub(r"(?i)\bBIT\b", "NUMBER(1)", ctype)
+
                 if col.get("role") == "PK":
-                    # Inject IDENTITY and PRIMARY KEY for PK columns
-                    base_type = re.sub(r"(?i)\bint\b", "INT", col["type"])
-                    col_lines.append(f"  {col['name']} {base_type} IDENTITY(1,1) {null} PRIMARY KEY")
+                    if is_mssql:
+                        col_lines.append(f"  {col['name']} INT IDENTITY(1,1) NOT NULL PRIMARY KEY")
+                    elif is_pg:
+                        col_lines.append(f"  {col['name']} SERIAL NOT NULL PRIMARY KEY")
+                    else:  # Oracle
+                        col_lines.append(f"  {col['name']} NUMBER GENERATED ALWAYS AS IDENTITY NOT NULL PRIMARY KEY")
                 else:
-                    col_lines.append(f"  {col['name']} {col['type']} {null}")
+                    col_lines.append(f"  {col['name']} {ctype} {null}")
             lines.append(",\n".join(col_lines))
-            lines.append(");")  
-            lines.append("GO")
+            lines.append(");")
+            if is_mssql:
+                lines.append("GO")
             lines.append("")
+
         for rel in relationships:
-            # Find the actual PK column name from the parent table
             parent_pk = next(
                 (col["name"] for t in tables if t["name"] == rel["to"] for col in t["columns"] if col.get("role") == "PK"),
-                f"{rel['to']}Id"  # fallback
+                f"{rel['to']}Id"
             )
-            lines.append(
-                f"ALTER TABLE [{rel['from']}] ADD CONSTRAINT FK_{rel['from']}_{rel['to']} "
-                f"FOREIGN KEY ({rel['column']}) REFERENCES [{rel['to']}]({parent_pk});"
-            )
-            lines.append("GO")
+            if is_mssql:
+                lines.append(f"ALTER TABLE [{rel['from']}] ADD CONSTRAINT FK_{rel['from']}_{rel['to']} FOREIGN KEY ({rel['column']}) REFERENCES [{rel['to']}]({parent_pk});")
+                lines.append("GO")
+            else:
+                lines.append(f"ALTER TABLE \"{rel['from']}\" ADD CONSTRAINT FK_{rel['from']}_{rel['to']} FOREIGN KEY ({rel['column']}) REFERENCES \"{rel['to']}\"({parent_pk});")
         lines.append("")
+
         for rel in relationships:
-            lines.append(f"CREATE INDEX IX_{rel['from']}_{rel['column']} ON [{rel['from']}] ({rel['column']});")
-            lines.append("GO")
+            if is_pg:
+                lines.append(f"CREATE INDEX CONCURRENTLY IF NOT EXISTS IX_{rel['from']}_{rel['column']} ON \"{rel['from']}\" ({rel['column']});")
+            elif is_oracle:
+                lines.append(f"CREATE INDEX IX_{rel['from']}_{rel['column']} ON \"{rel['from']}\" ({rel['column']});")
+            else:
+                lines.append(f"CREATE INDEX IX_{rel['from']}_{rel['column']} ON [{rel['from']}] ({rel['column']});")
+                lines.append("GO")
         return "\n".join(lines)
 
     def _build_rollback(self, tables, db_type: str) -> str:
-        lines = [
-            f"-- Rollback Script for {db_type}",
-            "-- TODO: Replace YourDatabaseName with your actual database name",
-            "USE [YourDatabaseName];",
-            "GO",
-            "",
-        ]
+        is_pg = db_type == "PostgreSQL"
+        is_oracle = db_type == "Oracle"
+        is_mssql = not is_pg and not is_oracle
+
+        if is_mssql:
+            lines = [
+                f"-- Rollback Script for {db_type}",
+                "-- TODO: Replace YourDatabaseName with your actual database name",
+                "USE [YourDatabaseName];",
+                "GO",
+                "",
+            ]
+        else:
+            lines = [f"-- Rollback Script for {db_type}", ""]
+
         for table in reversed(tables):
-            lines.append(f"DROP TABLE IF EXISTS [{table['name']}];")
-            lines.append("GO")
+            if is_pg:
+                lines.append(f"DROP TABLE IF EXISTS \"{table['name']}\" CASCADE;")
+            elif is_oracle:
+                lines.append(f"BEGIN EXECUTE IMMEDIATE 'DROP TABLE \"{table['name']}\" CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN NULL; END;")
+                lines.append("/")
+            else:
+                lines.append(f"DROP TABLE IF EXISTS [{table['name']}];")
+                lines.append("GO")
         return "\n".join(lines)
 
     def _build_erd(self, tables, relationships) -> str:
@@ -204,16 +259,4 @@ Rules:
             "```",
         ])
 
-    def _build_migration_plan(self, tables, relationships) -> str:
-        return "\n".join([
-            "# AI-Generated Migration Plan",
-            "",
-            "1. Review generated DDL and naming standards.",
-            "2. Deploy tables before foreign keys.",
-            "3. Deploy indexes after initial load for large tables.",
-            "4. Validate impacted stored procedures, views, reports, APIs, and jobs.",
-            "5. Keep rollback script ready for the same deployment window.",
-            "",
-            f"Tables to deploy: {len(tables)}",
-            f"Relationships to enforce: {len(relationships)}",
-        ])
+

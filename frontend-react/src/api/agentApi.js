@@ -1,16 +1,13 @@
 const API_BASE = '/api';
-const TEST_MODE = false; // Set to false to use normal API
+const FETCH_OPTS = { credentials: 'include' };
 
 // Multi-Agent Analysis (Groq-powered)
 export const analyzeMultiAgent = async (sql, dbType, analysisType = 'full_analysis') => {
   const response = await fetch(`${API_BASE}/analyze-multi-agent`, {
+    ...FETCH_OPTS,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ 
-      sql, 
-      db_type: dbType, 
-      analysis_type: analysisType 
-    }),
+    body: JSON.stringify({ sql, db_type: dbType, analysis_type: analysisType }),
   });
   if (!response.ok) {
     const error = await response.json();
@@ -21,18 +18,17 @@ export const analyzeMultiAgent = async (sql, dbType, analysisType = 'full_analys
 
 // Check AI System Status
 export const getMultiAgentStatus = async () => {
-  const response = await fetch(`${API_BASE}/ai-status`);
+  const response = await fetch(`${API_BASE}/ai-status`, { ...FETCH_OPTS });
   if (!response.ok) {
     throw new Error('Failed to get AI status');
   }
   return response.json();
 };
 
-// Regular Analysis (Static + Basic AI)
+// Regular Analysis (rule-based, no AI)
 export const analyzeSQL = async (sql, dbType, sourceType) => {
-  const endpoint = TEST_MODE ? 'http://127.0.0.1:8021/api/test-analyze' : `${API_BASE}/analyze`;
-  
-  const response = await fetch(endpoint, {
+  const response = await fetch(`${API_BASE}/analyze`, {
+    ...FETCH_OPTS,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sql, db_type: dbType, source_type: sourceType }),
@@ -46,6 +42,7 @@ export const analyzeSQL = async (sql, dbType, sourceType) => {
 
 export const addRelatedObject = async (sql, dbType, sourceType) => {
   const response = await fetch(`${API_BASE}/add-object`, {
+    ...FETCH_OPTS,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sql, db_type: dbType, source_type: sourceType }),
@@ -59,6 +56,7 @@ export const addRelatedObject = async (sql, dbType, sourceType) => {
 
 export const designSchema = async (prompt, dbType) => {
   const response = await fetch(`${API_BASE}/schema/design`, {
+    ...FETCH_OPTS,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, db_type: dbType }),
@@ -72,6 +70,7 @@ export const designSchema = async (prompt, dbType) => {
 
 export const designSchemaAI = async (prompt, dbType) => {
   const response = await fetch(`${API_BASE}/schema/design-ai`, {
+    ...FETCH_OPTS,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, db_type: dbType }),
@@ -83,12 +82,48 @@ export const designSchemaAI = async (prompt, dbType) => {
   return response.json();
 };
 
+export const suggestDbName = async (prompt) => {
+  const response = await fetch(`${API_BASE}/schema/suggest-db-name`, {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  });
+  const data = await response.json();
+  return data.db_name || 'NewDatabaseDB';
+};
+
+export const connectDB = async (server, useWindowsAuth = true, username = '', password = '') => {
+  const response = await fetch(`${API_BASE}/db/connect`, {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ server, use_windows_auth: useWindowsAuth, username, password }),
+  });
+  const data = await response.json();
+  if (!data.connected) throw new Error(data.error || 'Connection failed');
+  return data;
+};
+
+export const executeInDB = async (server, database, ddlScript, useWindowsAuth = true, username = '', password = '') => {
+  const response = await fetch(`${API_BASE}/db/execute`, {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ server, database, ddl_script: ddlScript, use_windows_auth: useWindowsAuth, username, password }),
+  });
+  const data = await response.json();
+  if (!data.success) throw new Error(data.error || 'Execution failed');
+  return data;
+};
+
 export const resetSession = async () => {
-  await fetch(`${API_BASE}/reset`, { method: 'POST' });
+  await fetch(`${API_BASE}/reset`, { ...FETCH_OPTS, method: 'POST' });
 };
 
 export const downloadArtifact = async (artifactType, analysis) => {
   const response = await fetch(`${API_BASE}/artifact`, {
+    ...FETCH_OPTS,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ artifact_type: artifactType, analysis }),

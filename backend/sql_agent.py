@@ -131,7 +131,7 @@ class SqlIntelligenceAgent:
                 "index_script": "\n\n".join(index_scripts) or "-- No index script generated.",
                 "execution_plan_analysis": execution_plan_to_markdown(execution_plan),
                 "db_review_report": report,
-                "comparison_report": comparison_report(cleaned, optimized_sql, findings, suggestions),
+                "comparison_report": comparison_report(cleaned, optimized_sql, findings, suggestions, name, object_type, tables, references, missing_references, metrics),
                 "test_data_generator": test_data_generator(db_type, tables),
             },
         }
@@ -208,7 +208,6 @@ class SqlIntelligenceAgent:
                 "rollback_script": rollback,
                 "erd_summary": erd,
                 "schema_review_report": report,
-                "migration_plan": build_migration_plan(tables, relationships, impact),
             },
         }
 
@@ -417,12 +416,6 @@ def estimate_metrics(sql: str, object_type: str, findings: list[dict[str, Any]],
     score = min(100, 18 + risk_points + length_factor + join_factor + table_factor)
     improvement = min(72, max(12, score // 2))
     return {
-        "execution_time_ms": 150 + score * 19,
-        "cpu_usage_pct": min(95, 22 + score // 2),
-        "logical_reads": 2800 + score * 470,
-        "rows_returned": 1200 + len(tables) * 640,
-        "index_usage_pct": max(18, 88 - score // 2),
-        "query_cost": round(8.5 + score * 0.62, 1),
         "risk_score": score,
         "improvement_potential_pct": improvement,
         "risk_level": "High" if score >= 70 else "Medium" if score >= 42 else "Low",
@@ -519,7 +512,7 @@ def build_execution_plan(sql: str, findings: list[dict[str, Any]], joins: list[d
         "statistics": "Update statistics on affected tables before comparing plans.",
         "parallelism": "Review CXPACKET/CXCONSUMER waits if CPU is high.",
         "memory_grant": "Watch for sort/hash spills in the actual execution plan.",
-        "estimated_cost": metrics["query_cost"],
+        "estimated_cost": metrics["risk_score"],
     }
 
 
@@ -598,18 +591,106 @@ def execution_plan_to_markdown(plan: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def comparison_report(original: str, optimized: str, findings: list[dict[str, Any]], suggestions: list[dict[str, Any]]) -> str:
-    return "\n".join([
-        "# Before vs After Comparison",
+def comparison_report(
+    original: str,
+    optimized: str,
+    findings: list[dict[str, Any]],
+    suggestions: list[dict[str, Any]],
+    name: str = "",
+    object_type: str = "",
+    tables: list[str] = None,
+    references: list[str] = None,
+    missing_references: list[str] = None,
+    metrics: dict[str, Any] = None,
+) -> str:
+    tables = tables or []
+    references = references or []
+    missing_references = missing_references or []
+    metrics = metrics or {}
+
+    high = [f for f in findings if f["severity"] == "High" and f["title"] != "No major rule-based issue detected"]
+    medium = [f for f in findings if f["severity"] == "Medium"]
+    low = [f for f in findings if f["severity"] == "Low"]
+    risk_level = metrics.get("risk_level", "Unknown")
+    improvement = metrics.get("improvement_potential_pct", 0)
+
+    lines = [
+        f"# Analysis Report: {name or 'SQL Object'}",
         "",
-        f"- Original length: {len(original)} characters",
-        f"- Optimized draft length: {len(optimized)} characters",
-        f"- Findings addressed: {len(findings)}",
-        f"- Recommendations generated: {len(suggestions)}",
+        f"Object Type  : {object_type or 'Unknown'}",
+        f"Tables Used  : {', '.join(tables) if tables else 'None detected'}",
+        f"Calls        : {', '.join(references) if references else 'None'}",
+        f"Missing Deps : {', '.join(missing_references) if missing_references else 'None'}",
         "",
-        "## Expected Improvement Areas",
-        *[f"- {item['title']}" for item in suggestions],
-    ])
+        "=" * 60,
+        "BEFORE — What Was Wrong",
+        "=" * 60,
+        "",
+    ]
+
+    if not high and not medium:
+        lines.append("No significant issues were detected in the original SQL.")
+    else:
+        if high:
+            lines.append(f"Critical Issues ({len(high)} found — must fix before deploying)")
+            lines.append("-" * 40)
+            for f in high:
+                lines.append(f"  [{f['severity']}] {f['title']}")
+                lines.append(f"  Why it matters : {f['detail']}")
+                lines.append(f"  Found in       : {f['evidence']}")
+                lines.append("")
+        if medium:
+            lines.append(f"Warnings ({len(medium)} found — review before deploying)")
+            lines.append("-" * 40)
+            for f in medium:
+                lines.append(f"  [{f['severity']}] {f['title']}")
+                lines.append(f"  Why it matters : {f['detail']}")
+                lines.append(f"  Found in       : {f['evidence']}")
+                lines.append("")
+        if low:
+            lines.append(f"Notes ({len(low)} informational)")
+            lines.append("-" * 40)
+            for f in low:
+                lines.append(f"  [{f['severity']}] {f['title']}: {f['detail']}")
+            lines.append("")
+
+    lines += [
+        "",
+        "=" * 60,
+        "AFTER — What Was Improved",
+        "=" * 60,
+        "",
+    ]
+
+    if not suggestions:
+        lines.append("No specific optimizations were generated.")
+    else:
+        for i, s in enumerate(suggestions, 1):
+            lines.append(f"  {i}. {s['title']}")
+            lines.append(f"     What to do  : {s['recommendation']}")
+            lines.append(f"     Impact      : {s['impact']}   Effort: {s['effort']}")
+            lines.append("")
+
+    lines += [
+        "",
+        "=" * 60,
+        "SUMMARY",
+        "=" * 60,
+        "",
+        f"  Risk Level              : {risk_level}",
+        f"  Estimated Improvement   : up to {improvement}% if recommendations are applied",
+        f"  High Issues             : {len(high)}",
+        f"  Warnings                : {len(medium)}",
+        f"  Recommendations         : {len(suggestions)}",
+        "",
+        "Next Steps:",
+        "  1. Fix all High issues listed above before deploying.",
+        "  2. Apply index recommendations from the Index Recommendation report.",
+        "  3. Review the Optimized SQL draft and validate against actual execution plans.",
+        "  4. Re-run analysis after changes to confirm risk level drops.",
+    ]
+
+    return "\n".join(lines)
 
 
 def test_data_generator(db_type: str, tables: list[str]) -> str:
@@ -884,28 +965,52 @@ def review_schema(tables: list[dict[str, Any]], relationships: list[dict[str, st
 
 
 def build_schema_ddl(tables: list[dict[str, Any]], relationships: list[dict[str, str]], db_type: str) -> str:
-    lines = [f"-- Migration script for {db_type}", ""]
+    lines = [
+        f"-- DDL Script for {db_type}",
+        "-- TODO: Replace YourDatabaseName with your actual database name",
+        "USE [YourDatabaseName];",
+        "GO",
+        "",
+    ]
     for table in tables:
-        lines.append(f"CREATE TABLE {table['name']} (")
+        safe_name = f"[{table['name']}]"
+        lines.append(f"CREATE TABLE {safe_name} (")
         col_lines = []
         for col in table["columns"]:
             null = "NULL" if col["nullable"] else "NOT NULL"
-            suffix = " PRIMARY KEY" if col["role"] == "PK" else ""
-            col_lines.append(f"  {col['name']} {col['type']} {null}{suffix}")
+            if col["role"] == "PK":
+                col_lines.append(f"  {col['name']} {col['type']} IDENTITY(1,1) {null} PRIMARY KEY")
+            else:
+                col_lines.append(f"  {col['name']} {col['type']} {null}")
         lines.append(",\n".join(col_lines))
-        lines.append(");")
+        lines.append(");")  
+        lines.append("GO")
         lines.append("")
     for rel in relationships:
-        lines.append(f"ALTER TABLE {rel['from']} ADD CONSTRAINT FK_{rel['from']}_{rel['to']} FOREIGN KEY ({rel['column']}) REFERENCES {rel['to']}({rel['to']}Id);")
+        parent_pk = next(
+            (col["name"] for t in tables if t["name"] == rel["to"] for col in t["columns"] if col.get("role") == "PK"),
+            f"{rel['to']}Id"
+        )
+        lines.append(f"ALTER TABLE [{rel['from']}] ADD CONSTRAINT FK_{rel['from']}_{rel['to']} FOREIGN KEY ({rel['column']}) REFERENCES [{rel['to']}]({parent_pk});")
+        lines.append("GO")
+    lines.append("")
     for rel in relationships:
-        lines.append(f"CREATE INDEX IX_{rel['from']}_{rel['column']} ON {rel['from']} ({rel['column']});")
+        lines.append(f"CREATE INDEX IX_{rel['from']}_{rel['column']} ON [{rel['from']}] ({rel['column']});")
+        lines.append("GO")
     return "\n".join(lines)
 
 
 def build_schema_rollback(tables: list[dict[str, Any]], db_type: str) -> str:
-    lines = [f"-- Rollback script for {db_type}"]
+    lines = [
+        f"-- Rollback script for {db_type}",
+        "-- TODO: Replace YourDatabaseName with your actual database name",
+        "USE [YourDatabaseName];",
+        "GO",
+        "",
+    ]
     for table in reversed(tables):
-        lines.append(f"DROP TABLE {table['name']};")
+        lines.append(f"DROP TABLE IF EXISTS [{table['name']}];")
+        lines.append("GO")
     return "\n".join(lines)
 
 
@@ -953,15 +1058,4 @@ def build_schema_report(tables, relationships, review, impact, ddl, rollback) ->
     ])
 
 
-def build_migration_plan(tables, relationships, impact) -> str:
-    return "\n".join([
-        "# Migration Plan",
-        "",
-        "1. Review generated DDL and naming standards.",
-        "2. Deploy tables before foreign keys.",
-        "3. Deploy indexes after initial load for large tables.",
-        "4. Validate impacted stored procedures, views, reports, APIs, and jobs.",
-        "5. Keep rollback script ready for the same deployment window.",
-        "",
-        f"Impacted known objects: {len(impact['impacted_objects'])}",
-    ])
+
