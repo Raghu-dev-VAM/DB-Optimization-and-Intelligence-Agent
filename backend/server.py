@@ -287,6 +287,13 @@ def db_connect(req: DBConnectRequest):
 
 @app.post("/api/db/execute")
 def db_execute(req: DBExecuteRequest):
+    print(f"[DEBUG] Execute request received:")
+    print(f"  Server: '{req.server}'")
+    print(f"  Database: '{req.database}'")
+    print(f"  Use Windows Auth: {req.use_windows_auth}")
+    print(f"  DDL Script length: {len(req.ddl_script)} chars")
+    print(f"  DDL Script preview: {req.ddl_script[:200]}...")
+    
     try:
         from db_connector import execute_ddl
         result = execute_ddl(
@@ -297,8 +304,11 @@ def db_execute(req: DBExecuteRequest):
             username=req.username,
             password=req.password,
         )
+        print(f"[DEBUG] Execute successful: {result}")
         return result
     except Exception as e:
+        print(f"[DEBUG] Execute failed: {str(e)}")
+        print(f"[DEBUG] Exception type: {type(e).__name__}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
