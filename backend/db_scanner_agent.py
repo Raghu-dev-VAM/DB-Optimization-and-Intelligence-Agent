@@ -160,6 +160,9 @@ def deploy_optimized_procedure(connection_string: str, optimized_sql: str, proce
         sql = sql_no_comments
         sql = re.sub(r'^\s*CREATE\s+PROCEDURE', 'CREATE OR ALTER PROCEDURE', sql, count=1, flags=re.IGNORECASE)
         sql = re.sub(r'^\s*ALTER\s+PROCEDURE',  'CREATE OR ALTER PROCEDURE', sql, count=1, flags=re.IGNORECASE)
+        # Ensure procedure body is closed with END
+        if re.search(r'\bBEGIN\b', sql, re.IGNORECASE) and not re.search(r'\bEND\s*$', sql.strip(), re.IGNORECASE):
+            sql = sql.rstrip() + '\nEND'
 
     try:
         cursor.execute(sql)

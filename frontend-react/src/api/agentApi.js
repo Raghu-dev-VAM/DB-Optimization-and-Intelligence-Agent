@@ -141,6 +141,18 @@ export const deployOptimized = async (connectionString, optimizedSql, procedureN
   return data;
 };
 
+export const fetchDeployLog = async (connectionString) => {
+  const response = await fetch(`${API_BASE}/db/deploy-log`, {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connection_string: connectionString }),
+  });
+  const data = await response.json();
+  if (!response.ok) return {};
+  return data;
+};
+
 export const resetSession = async () => {
   await fetch(`${API_BASE}/reset`, { ...FETCH_OPTS, method: 'POST' });
 };

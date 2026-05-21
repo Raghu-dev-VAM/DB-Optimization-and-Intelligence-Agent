@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { scanDatabase, fetchProcedure, deployOptimized, analyzeSQL } from '../../api/agentApi';
+import { scanDatabase, fetchProcedure, deployOptimized, analyzeSQL, fetchDeployLog } from '../../api/agentApi';
 import useAgentStore from '../../store/agentStore';
 
 const STEPS = ['Connect', 'Pick SP', 'Optimize', 'Deploy'];
@@ -38,6 +38,7 @@ export default function LiveDbTab() {
   const [deploying, setDeploying]     = useState(false);
   const [deployStatus, setDeployStatus] = useState(null);
   const [filter, setFilter]           = useState('all'); // 'all' | 'slow'
+  const [deployLog, setDeployLog]       = useState({});
   const [step, setStep]               = useState(0);
 
   const { setAnalysis: storeAnalysis, setActiveTab, setMode } = useAgentStore();
@@ -54,10 +55,14 @@ export default function LiveDbTab() {
     setOptimizedSql('');
     setAnalysis(null);
     setDeployStatus(null);
+    setDeployLog({});
     try {
       const result = await scanDatabase(connStr);
       setScanResult(result);
       setStep(1);
+      // fetch deploy log for this database
+      const log = await fetchDeployLog(connStr);
+      setDeployLog(log);
     } catch (e) {
       alert(`Connection failed: ${e.message}`);
     } finally {
@@ -119,6 +124,8 @@ export default function LiveDbTab() {
     try {
       const result = await deployOptimized(connStr, optimizedSql, selectedSp?.procedure_name);
       setDeployStatus({ type: 'success', message: result.message });
+      // update deploy log locally so badge appears immediately
+      setDeployLog(prev => ({ ...prev, [selectedSp.procedure_name.toLowerCase()]: { deployed_at: new Date().toISOString().slice(0, 19) } }));
       setStep(4);
     } catch (e) {
       setDeployStatus({ type: 'error', message: `❌ ${e.message}` });
@@ -190,12 +197,14 @@ export default function LiveDbTab() {
                 {filter === 'slow' ? 'No slow procedure stats yet — run the SPs first to populate sys.dm_exec_procedure_stats.' : 'No stored procedures found.'}
               </div>
             )}
-            {displayedSps.map((sp) => (
+            {displayedSps.map((sp) => {
+              const logEntry = deployLog[sp.procedure_name.toLowerCase()];
+              return (
               <div
                 key={sp.procedure_name}
                 onClick={() => handlePickSp(sp)}
                 style={{
-                  display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: 10,
+                  display: 'grid', gridTemplateColumns: '1fr auto auto auto', alignItems: 'center', gap: 10,
                   padding: '10px 14px', border: `1px solid ${selectedSp?.procedure_name === sp.procedure_name ? '#a8b8ff' : '#dce3ef'}`,
                   borderRadius: 8, background: selectedSp?.procedure_name === sp.procedure_name ? '#eef2ff' : sp.is_slow ? '#fff8f8' : '#f8faff',
                   cursor: 'pointer', transition: 'all 0.15s',
@@ -209,6 +218,11 @@ export default function LiveDbTab() {
                     Modified: {sp.modified_at?.slice(0, 10)} · {sp.source_length} chars
                   </div>
                 </div>
+                {logEntry && (
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#07936f', background: '#f0fdf4', padding: '2px 8px', borderRadius: 999, border: '1px solid #bbf7d0', whiteSpace: 'nowrap' }}>
+                    ✅ Optimized {logEntry.deployed_at?.slice(0, 10)}
+                  </div>
+                )}
                 {sp.is_slow && (
                   <div style={{ fontSize: 11, fontWeight: 800, color: '#cf263f', background: '#fff1f2', padding: '2px 8px', borderRadius: 999, border: '1px solid #fecdd3' }}>
                     SLOW
@@ -219,7 +233,8 @@ export default function LiveDbTab() {
                   {loadingSp && selectedSp?.procedure_name === sp.procedure_name ? 'Loading...' : 'Select →'}
                 </button>
               </div>
-            ))}
+            );
+            })}
           </div>
         </article>
       )}
@@ -235,6 +250,11 @@ export default function LiveDbTab() {
               {analyzing ? 'Analyzing...' : '⚡ Analyze & Optimize'}
             </button>
           </div>
+          {deployLog[selectedSp?.procedure_name?.toLowerCase()] && (
+            <div style={{ marginBottom: 12, padding: '10px 14px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 13, color: '#92400e' }}>
+              ⚠️ This procedure was already optimized and deployed by the agent on <strong>{deployLog[selectedSp.procedure_name.toLowerCase()].deployed_at?.slice(0, 19).replace('T', ' ')}</strong>. Re-analyzing an already-optimized procedure may degrade its performance.
+            </div>
+          )}
           <pre className="code-output" style={{ minHeight: 200, maxHeight: 320, whiteSpace: 'pre', overflowX: 'auto' }}>{spSource}</pre>
 
           {analysis && (

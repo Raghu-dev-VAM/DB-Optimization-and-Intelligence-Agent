@@ -22,6 +22,10 @@ from sql_orchestrator_agent import SQLOrchestratorAgent
 
 _orchestrator = SQLOrchestratorAgent()
 
+# ── deployment tracking (in-memory) ──────────────────────────────────────────
+# key: "database:procedure_name" → {deployed_at, procedure_name, database}
+_deploy_log: dict[str, dict] = {}
+
 # ── app setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(title="DB Optimization & Intelligence Agent", version="1.0.0")
 
@@ -219,6 +223,8 @@ Respond in JSON:
         ai_sql = ai_sql.replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '')
         if '\n' not in ai_sql:
             ai_sql = _reformat_single_line_sql(ai_sql)
+        ai_sql = re.sub(r'SET\s+NOCOUNT\s*\n\s*ON', 'SET NOCOUNT ON', ai_sql, flags=re.IGNORECASE)
+        ai_sql = re.sub(r'\s+WITH\s*\(\s*NOLOCK\s*\)', '', ai_sql, flags=re.IGNORECASE)
         ai_sql = fix_sql(ai_sql)
         if is_valid_sql(ai_sql):
             result["optimized_sql"] = ai_sql
@@ -264,6 +270,9 @@ def analyze(req: AnalyzeRequest, response: Response, session_id: Optional[str] =
             cleaned = ai_opt[0].replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '')
             if '\n' not in cleaned:
                 cleaned = _reformat_single_line_sql(cleaned)
+            cleaned = re.sub(r'SET\s+NOCOUNT\s*\n\s*ON', 'SET NOCOUNT ON', cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s+WITH\s*\(\s*NOLOCK\s*\)', '', cleaned, flags=re.IGNORECASE)
+            cleaned = fix_sql(cleaned)
             result["optimized_sql"] = cleaned
             result["artifacts"]["optimized_sql"] = cleaned
         else:
@@ -385,8 +394,34 @@ def db_deploy_optimized(req: DeployRequest):
     if not req.optimized_sql.strip():
         raise HTTPException(status_code=400, detail="No optimized SQL to deploy.")
     try:
-        from db_scanner_agent import deploy_optimized_procedure
-        return deploy_optimized_procedure(req.connection_string, req.optimized_sql, req.procedure_name)
+        from db_scanner_agent import deploy_optimized_procedure, _build_conn_str
+        from datetime import datetime
+        result = deploy_optimized_procedure(req.connection_string, req.optimized_sql, req.procedure_name)
+        # Record successful deployment
+        _, database = _build_conn_str(req.connection_string)
+        key = f"{database}:{req.procedure_name}".lower()
+        _deploy_log[key] = {
+            "procedure_name": req.procedure_name,
+            "database": database,
+            "deployed_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/db/deploy-log")
+def db_deploy_log(req: ScanRequest):
+    """Return deploy log entries for a given database."""
+    try:
+        from db_scanner_agent import _build_conn_str
+        _, database = _build_conn_str(req.connection_string)
+        entries = {
+            k.split(":", 1)[1]: v
+            for k, v in _deploy_log.items()
+            if k.startswith(database.lower() + ":")
+        }
+        return entries
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

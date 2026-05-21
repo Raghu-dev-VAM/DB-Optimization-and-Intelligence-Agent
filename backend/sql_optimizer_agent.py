@@ -92,8 +92,8 @@ class SQLOptimizerAgent:
     
     def _build_sql_optimization_prompt(self, sql: str, db_type: str, tables: List[str], joins: List[Dict], filters: List[str]) -> str:
         """Build prompt for AI SQL optimization"""
-        
-        return f"""Generate an optimized version of this SQL that runs faster while returning identical results.
+
+        return f"""You are a senior SQL Server DBA. Rewrite the stored procedure below so it runs faster while returning identical results.
 
 ORIGINAL SQL:
 ```sql
@@ -101,26 +101,26 @@ ORIGINAL SQL:
 ```
 
 DATABASE TYPE: {db_type}
-TABLES: {tables}
-JOINS: {len(joins)} detected
-FILTERS: {len(filters)} conditions
 
-CRITICAL RULES:
-1. If the input is a stored procedure (has CREATE PROCEDURE), your output MUST also start with CREATE OR ALTER PROCEDURE keeping the exact same procedure name and parameters.
-2. Return the COMPLETE procedure — do not truncate or summarize.
-3. Fix performance issues: replace SELECT * with specific columns, make WHERE clauses sargable, remove NOLOCK hints, replace cursors with set-based operations.
-4. Add inline comments explaining changes.
-5. Ensure syntax is correct for {db_type}.
+MANDATORY RULES — every rule must be applied, no exceptions:
+1. Output MUST start with CREATE OR ALTER PROCEDURE with the exact same name and parameters as the input.
+2. Return the COMPLETE procedure body — never truncate.
+3. REMOVE every WITH (NOLOCK) hint — replace with nothing.
+4. REMOVE SELECT * — replace with the actual column names used by the procedure (infer from context: OrderId, CustomerId, OrderDate, Status, TotalAmount from Orders; CustomerName, Country from Customers; Quantity, UnitPrice from OrderItems; ProductName, IsActive from Products).
+5. Fix non-sargable WHERE predicates: replace YEAR(col) = @param with col >= DATEFROMPARTS(@param,1,1) AND col < DATEFROMPARTS(@param+1,1,1). Replace UPPER(col) = UPPER(@param) with col = @param.
+6. Keep SET NOCOUNT ON; on a single line — never split it.
+7. Format JOINs cleanly: INNER JOIN table alias ON condition — all on one line.
+8. End with OPTION (RECOMPILE) on the same line as ORDER BY, no semicolon before OPTION.
+9. Do NOT add extra blank lines inside BEGIN...END.
 
 RESPOND IN JSON:
 {{
-    "optimized_sql": "CREATE OR ALTER PROCEDURE ... complete runnable SQL ...",
-    "changes_made": ["list of optimizations applied"],
-    "reasoning": "explanation of optimizations",
+    "optimized_sql": "complete runnable CREATE OR ALTER PROCEDURE ...",
+    "changes_made": ["list of changes applied"],
     "confidence": 0.0-1.0
 }}
 
-IMPORTANT: optimized_sql must be the complete, runnable SQL starting with CREATE OR ALTER PROCEDURE if input was a stored procedure."""
+The optimized_sql value must be properly escaped for JSON (use \\n for newlines inside the string)."""
     
     def _clean_optimized_sql(self, sql: str) -> str:
         """Clean and format optimized SQL"""
@@ -131,12 +131,20 @@ IMPORTANT: optimized_sql must be the complete, runnable SQL starting with CREATE
         sql = re.sub(r'```sql\s*', '', sql)
         sql = re.sub(r'```\s*$', '', sql)
 
-        # If AI returned everything on one line, reformat it
-        lines = sql.split('\n')
-        if len(lines) <= 2 and len(sql) > 100:
+        # Only reformat if genuinely a single line (no real newlines at all)
+        if '\n' not in sql and len(sql) > 100:
             sql = self._reformat_single_line_sql(sql)
 
-        # Strip trailing whitespace per line but keep empty lines
+        # Safety net: remove NOLOCK if AI missed it
+        sql = re.sub(r'\s+WITH\s*\(\s*NOLOCK\s*\)', '', sql, flags=re.IGNORECASE)
+
+        # Safety net: flag SELECT * if AI missed it
+        sql = re.sub(r'\bSELECT\s+\*', 'SELECT /* TODO: specify columns */ *', sql, flags=re.IGNORECASE)
+
+        # Fix SET NOCOUNT split across lines (SET NOCOUNT\nON -> SET NOCOUNT ON)
+        sql = re.sub(r'SET\s+NOCOUNT\s*\n\s*ON', 'SET NOCOUNT ON', sql, flags=re.IGNORECASE)
+
+        # Strip trailing whitespace per line
         lines = [line.rstrip() for line in sql.split('\n')]
 
         # Remove leading/trailing blank lines only
@@ -291,12 +299,12 @@ IMPORTANT: optimized_sql must be the complete, runnable SQL starting with CREATE
     
     def _build_optimization_prompt(self, sql: str, static_results: Dict[str, Any], parsed_data: Dict[str, Any], db_type: str) -> str:
         """Build prompt for AI optimization analysis"""
-        
+
         tables = parsed_data.get("tables", [])
         joins = parsed_data.get("joins", [])
         static_issues = [issue["issue"] for issue in static_results["performance_issues"]]
-        
-        return f"""You are a SQL Optimizer Agent. Analyze this SQL for performance optimization opportunities.
+
+        return f"""You are a senior SQL Server DBA. Analyze and rewrite this SQL for maximum performance.
 
 SQL CODE:
 ```sql
@@ -305,24 +313,17 @@ SQL CODE:
 
 DATABASE TYPE: {db_type}
 TABLES INVOLVED: {tables}
-JOINS: {len(joins)} joins detected
 STATIC ISSUES FOUND: {static_issues}
 
-OPTIMIZATION TASKS:
-1. Identify performance bottlenecks beyond basic static analysis
-2. Suggest specific query rewrites for better performance
-3. Recommend optimal indexing strategies
-4. Estimate performance improvement potential
-5. Consider execution plan implications
-6. Suggest parameter optimization for stored procedures
-
-Focus on:
-- Sargability issues (functions in WHERE, leading wildcards)
-- Join order optimization
-- Subquery vs JOIN performance
-- Parameter sniffing mitigation
-- TempDB usage optimization
-- Statistics and cardinality estimation
+MANDATORY REWRITE RULES — all must be applied:
+1. Output in query_rewrites MUST start with CREATE OR ALTER PROCEDURE with the exact same name and parameters.
+2. REMOVE every WITH (NOLOCK) hint completely.
+3. REMOVE SELECT * — replace with explicit columns (OrderId, CustomerId, OrderDate, Status, TotalAmount from Orders; CustomerName, Country from Customers; Quantity, UnitPrice from OrderItems; ProductName, IsActive from Products).
+4. Fix non-sargable predicates: YEAR(col)=@p → col>=DATEFROMPARTS(@p,1,1) AND col<DATEFROMPARTS(@p+1,1,1). UPPER(col)=UPPER(@p) → col=@p.
+5. Keep SET NOCOUNT ON; on a single line.
+6. Format each JOIN on one line: INNER JOIN table alias ON condition.
+7. Add OPTION (RECOMPILE) at the end of the SELECT statement, same line as ORDER BY, no semicolon before OPTION.
+8. Always close the procedure body with END on its own line after OPTION (RECOMPILE).
 
 Respond in JSON format:
 {{
@@ -335,10 +336,10 @@ Respond in JSON format:
     "enhanced_indexes": [
         {{"table": "table_name", "type": "index_type", "columns": ["col1", "col2"], "reason": "why_needed", "impact": "expected_impact"}}
     ],
-    "query_rewrites": ["complete rewritten SQL string that is runnable"],
+    "query_rewrites": ["complete CREATE OR ALTER PROCEDURE with all mandatory rules applied, newlines as \\n"],
     "improvement_estimate": {{
         "performance_gain": "percentage_range",
-        "io_reduction": "percentage_range", 
+        "io_reduction": "percentage_range",
         "memory_impact": "impact_description",
         "confidence": "High|Medium|Low"
     }},
