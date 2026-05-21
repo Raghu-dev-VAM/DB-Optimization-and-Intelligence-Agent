@@ -67,33 +67,18 @@ class SQLOptimizerAgent:
             optimized_sql = response.get("optimized_sql")
             
             if not optimized_sql:
-                # Try to extract from reasoning field
                 reasoning = response.get("reasoning", "")
-                if reasoning:
-                    # Look for JSON in reasoning
-                    import json
-                    json_match = re.search(r'```json\s*(\{.*?\})\s*```', reasoning, re.DOTALL)
-                    if json_match:
-                        try:
-                            # Clean up the JSON string for parsing
-                            json_str = json_match.group(1)
-                            # Fix common JSON issues with newlines in strings
-                            json_str = json_str.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
-                            parsed_json = json.loads(json_str)
-                            optimized_sql = parsed_json.get("optimized_sql", sql)
-                            # Restore newlines in the SQL
-                            optimized_sql = optimized_sql.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
-                        except Exception as e:
-                            # Try alternative parsing - extract SQL directly from the reasoning
-                            sql_match = re.search(r'"optimized_sql":\s*"([^"]+)"', reasoning, re.DOTALL)
-                            if sql_match:
-                                optimized_sql = sql_match.group(1).replace('\\n', '\n')
-                            else:
-                                optimized_sql = sql
+                # try extracting from ```sql block first
+                sql_block = re.search(r'```sql\s*(.*?)\s*```', reasoning, re.DOTALL)
+                if sql_block:
+                    optimized_sql = sql_block.group(1).strip()
+                else:
+                    # try extracting optimized_sql key from embedded JSON
+                    key_match = re.search(r'"optimized_sql"\s*:\s*"(.*?)"(?=\s*[,}])', reasoning, re.DOTALL)
+                    if key_match:
+                        optimized_sql = key_match.group(1).replace('\\n', '\n').replace('\\t', '\t')
                     else:
                         optimized_sql = sql
-                else:
-                    optimized_sql = sql
             
             # Clean up the SQL
             optimized_sql = self._clean_optimized_sql(optimized_sql)
@@ -108,7 +93,7 @@ class SQLOptimizerAgent:
     def _build_sql_optimization_prompt(self, sql: str, db_type: str, tables: List[str], joins: List[Dict], filters: List[str]) -> str:
         """Build prompt for AI SQL optimization"""
         
-        return f"""Generate an optimized version of this SQL query that runs faster while returning identical results.
+        return f"""Generate an optimized version of this SQL that runs faster while returning identical results.
 
 ORIGINAL SQL:
 ```sql
@@ -120,44 +105,75 @@ TABLES: {tables}
 JOINS: {len(joins)} detected
 FILTERS: {len(filters)} conditions
 
-OPTIMIZATION REQUIREMENTS:
-1. Generate complete, runnable SQL that produces identical results
-2. Fix performance issues:
-   - Replace SELECT * with specific columns when reasonable
-   - Make WHERE clauses sargable (avoid functions on columns)
-   - Remove NOLOCK hints
-   - Optimize JOIN conditions
-   - Replace cursors with set-based operations
-   - Fix parameter sniffing issues
-
-3. Add comments explaining major changes
-4. Ensure syntax is correct for {db_type}
+CRITICAL RULES:
+1. If the input is a stored procedure (has CREATE PROCEDURE), your output MUST also start with CREATE OR ALTER PROCEDURE keeping the exact same procedure name and parameters.
+2. Return the COMPLETE procedure — do not truncate or summarize.
+3. Fix performance issues: replace SELECT * with specific columns, make WHERE clauses sargable, remove NOLOCK hints, replace cursors with set-based operations.
+4. Add inline comments explaining changes.
+5. Ensure syntax is correct for {db_type}.
 
 RESPOND IN JSON:
 {{
-    "optimized_sql": "-- Complete optimized SQL with comments",
+    "optimized_sql": "CREATE OR ALTER PROCEDURE ... complete runnable SQL ...",
     "changes_made": ["list of optimizations applied"],
     "reasoning": "explanation of optimizations",
     "confidence": 0.0-1.0
 }}
 
-IMPORTANT: The optimized_sql must be complete and runnable."""
+IMPORTANT: optimized_sql must be the complete, runnable SQL starting with CREATE OR ALTER PROCEDURE if input was a stored procedure."""
     
     def _clean_optimized_sql(self, sql: str) -> str:
         """Clean and format optimized SQL"""
-        
+        # Decode escaped newlines/tabs from JSON string encoding
+        sql = sql.replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '')
+
         # Remove markdown code blocks
         sql = re.sub(r'```sql\s*', '', sql)
         sql = re.sub(r'```\s*$', '', sql)
-        
-        # Clean up whitespace
-        lines = []
-        for line in sql.split('\n'):
-            line = line.rstrip()
-            if line:
-                lines.append(line)
-        
+
+        # If AI returned everything on one line, reformat it
+        lines = sql.split('\n')
+        if len(lines) <= 2 and len(sql) > 100:
+            sql = self._reformat_single_line_sql(sql)
+
+        # Strip trailing whitespace per line but keep empty lines
+        lines = [line.rstrip() for line in sql.split('\n')]
+
+        # Remove leading/trailing blank lines only
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+
         return '\n'.join(lines)
+
+    def _reformat_single_line_sql(self, sql: str) -> str:
+        """Add newlines to single-line SQL at keyword boundaries."""
+        keywords = [
+            'SELECT', 'FROM', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN',
+            'CROSS JOIN', 'JOIN', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY',
+            'HAVING', 'INSERT INTO', 'UPDATE', 'SET', 'DELETE FROM', 'CREATE',
+            'ALTER', 'BEGIN', 'END', 'DECLARE', 'EXEC', 'EXECUTE', 'UNION',
+            'WITH', 'AS', 'ON',
+        ]
+        # Sort longest first to avoid partial matches
+        keywords.sort(key=len, reverse=True)
+        result = sql
+        for kw in keywords:
+            result = re.sub(rf'(?<![\w])({re.escape(kw)})(?![\w])', rf'\n\1', result, flags=re.IGNORECASE)
+        # Indent lines after SELECT, WHERE, AND, OR, JOIN
+        lines = result.split('\n')
+        formatted = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            upper = stripped.upper()
+            if any(upper.startswith(k) for k in ['AND ', 'OR ', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'JOIN', 'FROM']):
+                formatted.append('    ' + stripped)
+            else:
+                formatted.append(stripped)
+        return '\n'.join(formatted)
     
     def _static_sql_optimization(self, sql: str, db_type: str) -> str:
         """Fallback static SQL optimization"""
@@ -319,10 +335,7 @@ Respond in JSON format:
     "enhanced_indexes": [
         {{"table": "table_name", "type": "index_type", "columns": ["col1", "col2"], "reason": "why_needed", "impact": "expected_impact"}}
     ],
-    "query_rewrites": [
-        "-- Original problematic pattern",
-        "-- Optimized version with explanation"
-    ],
+    "query_rewrites": ["complete rewritten SQL string that is runnable"],
     "improvement_estimate": {{
         "performance_gain": "percentage_range",
         "io_reduction": "percentage_range", 

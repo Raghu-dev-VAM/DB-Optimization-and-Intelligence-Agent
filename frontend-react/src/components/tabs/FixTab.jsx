@@ -7,7 +7,14 @@ export default function FixTab() {
     return <div className="empty-state"><p>Run an analysis first to see optimization outputs.</p></div>;
   }
 
-  const { optimized_sql, index_scripts } = currentAnalysis;
+  const rawSql = (currentAnalysis.optimized_sql || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '');
+
+  const { index_scripts } = currentAnalysis;
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -19,9 +26,9 @@ export default function FixTab() {
         <article className="card">
           <div className="section-heading-row">
             <div className="section-heading green">Optimized Query / Procedure Draft</div>
-            <button className="copy-btn" onClick={() => copyToClipboard(optimized_sql)}>Copy</button>
+            <button className="copy-btn" onClick={() => copyToClipboard(rawSql)}>Copy</button>
           </div>
-          <pre className="code-output">{optimized_sql || '-- Run analysis first.'}</pre>
+          <pre className="code-output">{rawSql || '-- Run analysis first.'}</pre>
         </article>
         <article className="card">
           <div className="section-heading-row">

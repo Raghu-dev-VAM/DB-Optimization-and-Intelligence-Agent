@@ -34,11 +34,7 @@ export default function SchemaTab() {
   const [prompt, setPrompt] = useState(SAMPLE_PROMPT);
   const [dbType, setDbType] = useState('SQL Server');
   const [copied, setCopied] = useState(false);
-  const [dbServer, setDbServer] = useState('localhost');
-  const [dbName, setDbName] = useState('');
-  const [useWindowsAuth, setUseWindowsAuth] = useState(true);
-  const [dbUser, setDbUser] = useState('');
-  const [dbPass, setDbPass] = useState('');
+  const [connStr, setConnStr] = useState('Server=.\\SQLEXPRESS;Database=;Trusted_Connection=True;TrustServerCertificate=True;');
   const [dbStatus, setDbStatus] = useState(null);
   const [dbExecuting, setDbExecuting] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
@@ -56,7 +52,8 @@ export default function SchemaTab() {
       setSchema(result);
       try {
         const suggested = await suggestDbName(prompt);
-        setDbName(suggested);
+        // inject suggested db name into connection string
+        setConnStr(prev => prev.replace(/Database=[^;]*/i, `Database=${suggested}`));
       } catch { /* keep existing */ }
     } catch (e) {
       alert(e.message);
@@ -67,13 +64,12 @@ export default function SchemaTab() {
 
   const handleExecuteInDB = async () => {
     if (!currentSchema) return alert('Run DB Schema Agent first to generate a schema.');
-    if (!dbServer.trim()) return alert('Enter a SQL Server name.');
-    if (!dbName.trim()) return alert('Enter a database name.');
+    if (!connStr.trim()) return alert('Paste a connection string first.');
     setDbExecuting(true);
     setDbStatus(null);
     try {
-      const result = await executeInDB(dbServer, dbName, currentSchema.migration_script, useWindowsAuth, dbUser, dbPass);
-      setDbStatus({ type: 'success', message: `✅ ${result.message} Open SSMS and refresh to see '${dbName}'.` });
+      const result = await executeInDB(connStr, currentSchema.migration_script);
+      setDbStatus({ type: 'success', message: result.message });
     } catch (e) {
       setDbStatus({ type: 'error', message: `❌ ${e.message}` });
     } finally {
@@ -235,38 +231,15 @@ export default function SchemaTab() {
           {dbType === 'SQL Server' && (
           <div style={{ marginTop: 16, borderTop: '1px solid #e5e7eb', paddingTop: 14 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: '#1e293b' }}>⚡ Execute in SQL Server</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-              <div style={{ flex: '1 1 160px' }}>
-                <label style={{ fontSize: 11, color: '#64748b' }}>Server</label>
-                <input
-                  value={dbServer}
-                  onChange={e => setDbServer(e.target.value)}
-                  placeholder="localhost or DESKTOP\SQLEXPRESS"
-                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12 }}
-                />
-              </div>
-              <div style={{ flex: '1 1 160px' }}>
-                <label style={{ fontSize: 11, color: '#64748b' }}>Database Name</label>
-                <input
-                  value={dbName}
-                  onChange={e => setDbName(e.target.value)}
-                  placeholder="Auto-suggested after design"
-                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12 }}
-                />
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input type="checkbox" checked={useWindowsAuth} onChange={e => setUseWindowsAuth(e.target.checked)} />
-                Windows Authentication
-              </label>
-            </div>
-            {!useWindowsAuth && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                <input value={dbUser} onChange={e => setDbUser(e.target.value)} placeholder="Username" style={{ flex: 1, padding: '6px 8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12 }} />
-                <input value={dbPass} onChange={e => setDbPass(e.target.value)} placeholder="Password" type="password" style={{ flex: 1, padding: '6px 8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12 }} />
-              </div>
-            )}
+            <label style={{ fontSize: 11, color: '#64748b' }}>Connection String</label>
+            <textarea
+              value={connStr}
+              onChange={e => setConnStr(e.target.value)}
+              spellCheck={false}
+              rows={3}
+              style={{ width: '100%', padding: '8px', border: '1px solid #dce3ef', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', marginBottom: 8, resize: 'vertical' }}
+              placeholder="Server=.\SQLEXPRESS;Database=MyDb;Trusted_Connection=True;TrustServerCertificate=True;"
+            />
             <button
               onClick={handleExecuteInDB}
               disabled={dbExecuting || !currentSchema}

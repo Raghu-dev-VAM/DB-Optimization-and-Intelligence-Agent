@@ -18,6 +18,9 @@ from typing import Optional
 
 from sql_agent import SqlIntelligenceAgent
 from groq_client import groq_client
+from sql_orchestrator_agent import SQLOrchestratorAgent
+
+_orchestrator = SQLOrchestratorAgent()
 
 # ── app setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(title="DB Optimization & Intelligence Agent", version="1.0.0")
@@ -54,22 +57,24 @@ class SchemaRequest(BaseModel):
     prompt: str = ""
     db_type: str = "SQL Server"
 
-class DBConnectRequest(BaseModel):
-    server: str = ""
-    use_windows_auth: bool = True
-    username: str = ""
-    password: str = ""
-
 class DBExecuteRequest(BaseModel):
-    server: str = ""
-    database: str = ""
+    connection_string: str = ""
     ddl_script: str = ""
-    use_windows_auth: bool = True
-    username: str = ""
-    password: str = ""
 
 class SuggestDbNameRequest(BaseModel):
     prompt: str = ""
+
+class ScanRequest(BaseModel):
+    connection_string: str = ""
+
+class FetchProcRequest(BaseModel):
+    connection_string: str = ""
+    procedure_name: str = ""
+
+class DeployRequest(BaseModel):
+    connection_string: str = ""
+    optimized_sql: str = ""
+    procedure_name: str = ""
 
 # ── health & status ───────────────────────────────────────────────────────────
 @app.get("/api/health")
@@ -90,6 +95,32 @@ def memory(response: Response, session_id: Optional[str] = Cookie(default=None))
 
 
 import json, re
+
+
+def _reformat_single_line_sql(sql: str) -> str:
+    """Add newlines to single-line SQL at keyword boundaries."""
+    keywords = [
+        'SELECT', 'FROM', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN',
+        'CROSS JOIN', 'JOIN', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY',
+        'HAVING', 'INSERT INTO', 'UPDATE', 'SET', 'DELETE FROM', 'CREATE',
+        'ALTER', 'BEGIN', 'END', 'DECLARE', 'EXEC', 'EXECUTE', 'UNION', 'ON',
+    ]
+    keywords.sort(key=len, reverse=True)
+    result = sql
+    for kw in keywords:
+        result = re.sub(rf'(?<![\w])({re.escape(kw)})(?![\w])', rf'\n\1', result, flags=re.IGNORECASE)
+    lines = result.split('\n')
+    formatted = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        upper = stripped.upper()
+        if any(upper.startswith(k) for k in ['AND ', 'OR ', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'JOIN', 'FROM']):
+            formatted.append('    ' + stripped)
+        else:
+            formatted.append(stripped)
+    return '\n'.join(formatted)
 
 
 def fix_sql(sql: str) -> str:
@@ -185,6 +216,9 @@ Respond in JSON:
 
     ai_sql = response.get("optimized_sql", "")
     if ai_sql and len(ai_sql.strip()) > 20:
+        ai_sql = ai_sql.replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '')
+        if '\n' not in ai_sql:
+            ai_sql = _reformat_single_line_sql(ai_sql)
         ai_sql = fix_sql(ai_sql)
         if is_valid_sql(ai_sql):
             result["optimized_sql"] = ai_sql
@@ -197,19 +231,71 @@ Respond in JSON:
 
 
 # ── unified analyze route ─────────────────────────────────────────────────────
-# Rule engine always runs first.
-# Groq enrichment is attempted silently — if it fails, rule-based result is returned as-is.
+# 1. Rule engine runs first (sql_agent.py)
+# 2. AutoGen orchestrator runs all 5 specialist agents
+# 3. Groq enrichment merges AI insights back into the result
 @app.post("/api/analyze")
 def analyze(req: AnalyzeRequest, response: Response, session_id: Optional[str] = Cookie(default=None)):
     if not req.sql.strip():
         raise HTTPException(status_code=400, detail="Paste SQL or upload a .sql file before analysis.")
     agent, _ = get_agent(session_id, response)
 
+    # Step 1 — rule-based analysis
     result = agent.analyze(req.sql, req.db_type, req.source_type)
+
+    # Step 2 — AutoGen multi-agent orchestration
     try:
-        result = enrich_with_groq(req.sql, result, req.db_type)
-    except Exception:
-        result["ai_enhanced"] = False
+        known = {obj["name"]: obj for obj in agent.get_memory().get("objects", [])}
+        orch = _orchestrator.orchestrate_analysis(
+            sql=req.sql,
+            db_type=req.db_type,
+            known_objects=known,
+        )
+        # Merge orchestration results into the base result
+        result["orchestration_strategy"] = orch.orchestration_strategy
+        result["agents_used"] = orch.agents_used
+        result["overall_confidence"] = orch.overall_confidence
+        result["ai_recommendations"] = orch.recommendations
+        result["ai_insights"] = orch.ai_insights
+        result["processing_time"] = orch.total_processing_time
+        # Prefer AI-generated optimized SQL if available
+        ai_opt = orch.optimization_results.get("query_rewrite_suggestions", [])
+        if ai_opt and ai_opt[0].strip():
+            cleaned = ai_opt[0].replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '')
+            if '\n' not in cleaned:
+                cleaned = _reformat_single_line_sql(cleaned)
+            result["optimized_sql"] = cleaned
+            result["artifacts"]["optimized_sql"] = cleaned
+        else:
+            # query_rewrite_suggestions empty — call generate_optimized_sql directly
+            try:
+                ai_sql = _orchestrator.optimizer_agent.generate_optimized_sql(
+                    req.sql, orch.parsed_results, req.db_type
+                )
+                if ai_sql and is_valid_sql(ai_sql):
+                    result["optimized_sql"] = ai_sql
+                    result["artifacts"]["optimized_sql"] = ai_sql
+            except Exception as opt_err:
+                print(f"[OPTIMIZER] generate_optimized_sql failed: {opt_err}")
+        # Merge security vulnerabilities as additional findings
+        for vuln in orch.security_results.get("vulnerabilities", []):
+            result["findings"].append({
+                "title": vuln.get("vulnerability", "Security Issue"),
+                "severity": vuln.get("severity", "High"),
+                "category": "Security",
+                "detail": vuln.get("description", ""),
+                "evidence": vuln.get("evidence", ""),
+            })
+        result["ai_enhanced"] = True
+        result["ai_status"] = "Rule-based + AutoGen 5-agent orchestration"
+    except Exception as e:
+        print(f"[ORCHESTRATOR] Failed, falling back to Groq enrichment: {e}")
+        # Step 3 — fallback: single Groq enrichment call
+        try:
+            result = enrich_with_groq(req.sql, result, req.db_type)
+        except Exception:
+            result["ai_enhanced"] = False
+
     return result
 
 
@@ -270,35 +356,53 @@ def suggest_db_name(req: SuggestDbNameRequest):
 
 
 # ── live db routes ────────────────────────────────────────────────────────────
-@app.post("/api/db/connect")
-def db_connect(req: DBConnectRequest):
+@app.post("/api/db/scan")
+def db_scan(req: ScanRequest):
+    if not req.connection_string.strip():
+        raise HTTPException(status_code=400, detail="Paste a connection string first.")
     try:
-        from db_connector import test_connection
-        result = test_connection(
-            server=req.server,
-            use_windows_auth=req.use_windows_auth,
-            username=req.username,
-            password=req.password,
-        )
-        return result
+        from db_scanner_agent import scan_database
+        return scan_database(req.connection_string)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/db/fetch-procedure")
+def db_fetch_procedure(req: FetchProcRequest):
+    if not req.connection_string.strip() or not req.procedure_name.strip():
+        raise HTTPException(status_code=400, detail="Connection string and procedure name are required.")
+    try:
+        from db_scanner_agent import get_procedure_source
+        return get_procedure_source(req.connection_string, req.procedure_name)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/db/deploy-optimized")
+def db_deploy_optimized(req: DeployRequest):
+    if not req.connection_string.strip():
+        raise HTTPException(status_code=400, detail="Paste a connection string first.")
+    if not req.optimized_sql.strip():
+        raise HTTPException(status_code=400, detail="No optimized SQL to deploy.")
+    try:
+        from db_scanner_agent import deploy_optimized_procedure
+        return deploy_optimized_procedure(req.connection_string, req.optimized_sql, req.procedure_name)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/db/execute")
 def db_execute(req: DBExecuteRequest):
+    if not req.connection_string.strip():
+        raise HTTPException(status_code=400, detail="Paste a connection string first.")
+    if not req.ddl_script.strip():
+        raise HTTPException(status_code=400, detail="No DDL script to execute.")
     try:
         from db_connector import execute_ddl
-        result = execute_ddl(
-            server=req.server,
-            database=req.database,
-            ddl_script=req.ddl_script,
-            use_windows_auth=req.use_windows_auth,
-            username=req.username,
-            password=req.password,
-        )
+        result = execute_ddl(req.connection_string, req.ddl_script)
         return result
     except Exception as e:
+        print(f"[DB EXECUTE ERROR] {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 

@@ -93,27 +93,51 @@ export const suggestDbName = async (prompt) => {
   return data.db_name || 'NewDatabaseDB';
 };
 
-export const connectDB = async (server, useWindowsAuth = true, username = '', password = '') => {
-  const response = await fetch(`${API_BASE}/db/connect`, {
-    ...FETCH_OPTS,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ server, use_windows_auth: useWindowsAuth, username, password }),
-  });
-  const data = await response.json();
-  if (!data.connected) throw new Error(data.error || 'Connection failed');
-  return data;
-};
-
-export const executeInDB = async (server, database, ddlScript, useWindowsAuth = true, username = '', password = '') => {
+export const executeInDB = async (connectionString, ddlScript) => {
   const response = await fetch(`${API_BASE}/db/execute`, {
     ...FETCH_OPTS,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ server, database, ddl_script: ddlScript, use_windows_auth: useWindowsAuth, username, password }),
+    body: JSON.stringify({ connection_string: connectionString, ddl_script: ddlScript }),
   });
   const data = await response.json();
-  if (!data.success) throw new Error(data.error || 'Execution failed');
+  if (!data.success) throw new Error(data.detail || data.error || 'Execution failed');
+  return data;
+};
+
+export const scanDatabase = async (connectionString) => {
+  const response = await fetch(`${API_BASE}/db/scan`, {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connection_string: connectionString }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Scan failed');
+  return data;
+};
+
+export const fetchProcedure = async (connectionString, procedureName) => {
+  const response = await fetch(`${API_BASE}/db/fetch-procedure`, {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connection_string: connectionString, procedure_name: procedureName }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Fetch failed');
+  return data;
+};
+
+export const deployOptimized = async (connectionString, optimizedSql, procedureName) => {
+  const response = await fetch(`${API_BASE}/db/deploy-optimized`, {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connection_string: connectionString, optimized_sql: optimizedSql, procedure_name: procedureName }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Deploy failed');
   return data;
 };
 

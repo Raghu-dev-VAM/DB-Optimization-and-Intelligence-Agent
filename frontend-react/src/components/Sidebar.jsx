@@ -1,4 +1,4 @@
-import { Database, Search, FlaskConical } from 'lucide-react';
+import { Database, Search, FlaskConical, ServerCog } from 'lucide-react';
 import useAgentStore from '../store/agentStore';
 
 export default function Sidebar() {
@@ -24,6 +24,13 @@ export default function Sidebar() {
         >
           <span className="nav-icon"><Database size={13} /></span>
           <span>Schema Agent</span>
+        </button>
+        <button
+          className={`nav-item ${mode === 'livedb' ? 'active' : ''}`}
+          onClick={() => setMode('livedb')}
+        >
+          <span className="nav-icon"><ServerCog size={13} /></span>
+          <span>Live DB</span>
         </button>
       </nav>
 

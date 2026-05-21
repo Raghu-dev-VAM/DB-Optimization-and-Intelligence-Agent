@@ -7,6 +7,7 @@ import DependenciesTab from './components/tabs/DependenciesTab';
 import FixTab from './components/tabs/FixTab';
 import DeployTab from './components/tabs/DeployTab';
 import SchemaTab from './components/tabs/SchemaTab';
+import LiveDbTab from './components/tabs/LiveDbTab';
 
 const TABS = [
   { id: 'diagnose', label: 'Diagnose' },
@@ -31,7 +32,7 @@ export default function App() {
       <Sidebar />
       <main className="shell">
         <Topbar />
-        <section className={`workspace ${mode === 'schema' ? 'schema-mode' : ''}`}>
+        <section className={`workspace ${mode === 'schema' || mode === 'livedb' ? 'schema-mode' : ''}`}>
           {mode === 'analyze' && <InputPanel />}
           <section className="main-panel">
             {mode === 'analyze' && (
@@ -47,7 +48,7 @@ export default function App() {
                 ))}
               </div>
             )}
-            {mode === 'analyze' ? <ActiveTab /> : <SchemaTab />}
+            {mode === 'analyze' ? <ActiveTab /> : mode === 'livedb' ? <LiveDbTab /> : <SchemaTab />}
           </section>
         </section>
       </main>
